@@ -1,23 +1,28 @@
 ## Wallet Randomizer
 
-This Python script allows you to generate multiple random BIP39 wallets and check their addresses' balances using a local Bitcoin Core instance. It supports multiple BIP types in a comma-separated list (e.g., `bip84,bip44`).
+This Python script allows you to generate multiple random BIP39 wallets and check their addresses' balances using a local Bitcoin Core instance. It supports multiple BIP types (comma-separated), custom mnemonic word count (12 or 24), various languages, and stores RPC credentials in a `.env` file.
 
 ---
 
 ### Features
 
 1. **Random Mnemonic Generation**  
-   Generates a random 12-word (or optional 24-word) BIP39 mnemonic for each wallet.
+   - Generates a random BIP39 mnemonic in **12 words** (default) or **24 words** using `--wordcount`.
+   - Supports **various languages** (English, Spanish, French, Italian, Japanese, Korean, Chinese Simplified, Chinese Traditional) via `--language`.
 
 2. **Multiple BIP Types**  
-   You can provide one or more derivation types in a comma-separated list (e.g. `bip84,bip49`), and the script will derive addresses for **each** specified BIP type from the same mnemonic.
+   - Provide one or more derivation types in a comma-separated list, e.g. `bip84,bip49,bip44`, to derive addresses for each type from the same mnemonic.
 
 3. **Local Bitcoin Core Balances**  
-   Fetches each derived address's **final balance** from a locally running Bitcoin Core node (`bitcoind`) via **`scantxoutset`**.  
-   - This works even if `disablewallet=1` is set in `bitcoin.conf`, because **no** wallet RPC calls are used.
+   - Uses `scantxoutset` to fetch final balances from a local Bitcoin Core node (`bitcoind`).  
+   - Works with **`disablewallet=1`** in `bitcoin.conf` since it does **not** use wallet RPC calls.
 
-4. **Logging (Optional)**  
-   Optionally create a `.log` file in the script directory by using the `-l/--logfile` flag. The log file will be named with a timestamp, e.g., `2025-02-07_14-30-59.log`, and will contain all console output.
+4. **.env for Credentials**  
+   - Credentials (`RPC_USER`, `RPC_PASSWORD`, `RPC_URL`) are loaded from a `.env` file, keeping secrets out of the script.  
+   - Uses `python-dotenv` to load these into environment variables.
+
+5. **Logging (Optional)**  
+   - Optionally create a `.log` file in the script directory by using the `-L/--logfile` flag. The file is timestamped (e.g., `2025-02-07_14-30-59.log`) and contains all console output.
 
 ---
 
@@ -25,13 +30,25 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 
 1. **Dependencies**  
    - Python 3.7+  
-   - `pip install mnemonic bip_utils requests`
+   - `pip install mnemonic bip_utils requests python-dotenv`
 
 2. **Bitcoin Core**  
    - A locally running Bitcoin Core node with `txindex=1` enabled in your `bitcoin.conf`.  
-   - RPC credentials configured in your `bitcoin.conf`.  
-   - The script defaults to `RPC_URL = "http://127.0.0.1:8332"`.  
-   - Ensure your `RPC_USER` and `RPC_PASSWORD` in the script match your local Bitcoin Core settings.
+   - **No wallet** is required (`disablewallet=1` is okay).  
+   - Your `.env` file must contain:
+     ```
+     RPC_USER=<your_rpc_user>
+     RPC_PASSWORD=<your_rpc_password>
+     RPC_URL=http://127.0.0.1:8332
+     ```
+
+3. **.env File**  
+   - Place a `.env` file **in the same directory** as the script:
+     ```bash
+     RPC_USER=user
+     RPC_PASSWORD=passwd
+     RPC_URL=http://127.0.0.1:8332
+     ```
 
 ---
 
@@ -41,22 +58,29 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
 ```
 
-- **`<num_wallets>`**: Integer number of wallets to generate (must be > 0).  
-- **`<num_addresses>`**: Integer number of addresses to derive per wallet (must be > 0).  
-- **`<bip_types>`**: A comma-separated list of one or more of `bip44`, `bip49`, `bip84`, or `bip86`.  
-  - Example: `bip84,bip44`  
+Where:
+- **`<num_wallets>`**: Number of wallets to generate (must be > 0).  
+- **`<num_addresses>`**: Number of addresses to derive per wallet (must be > 0).  
+- **`<bip_types>`**: A comma-separated list of `bip44`, `bip49`, `bip84`, `bip86` (one or more).
 
 #### Optional Arguments
 
-- **`-l, --logfile`**: If provided, creates a `.log` file in the same directory as the script using a timestamped filename.
+- **`-L, --logfile`**  
+  If used, creates a `.log` file in the script directory with a timestamp.  
+- **`-w, --wordcount {12,24}`**  
+  Choose **12** (default) or **24** words for your mnemonic.  
+- **`-l, --language <lang>`**  
+  Select the mnemonic language (`english`, `french`, `italian`, `spanish`, `japanese`, `korean`, `chinese_simplified`, `chinese_traditional`). Defaults to **`english`**.
 
-#### Examples
+---
 
-1. **Generate 3 wallets, 5 addresses each, using only BIP84**:
+### Examples
+
+1. **Generate 3 wallets, 5 addresses each, using only BIP84 (English, 12 words)**:
    ```bash
    python walletrandomizer.py 3 5 bip84
    ```
-2. **Generate 2 wallets, 3 addresses each, with logging to file**:
+2. **Generate 2 wallets, 3 addresses each, logging to file**:
    ```bash
    python walletrandomizer.py 2 3 bip44 --logfile
    ```
@@ -64,71 +88,89 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
    ```bash
    python walletrandomizer.py 2 3 bip84,bip44
    ```
-   This will derive 3 addresses for BIP84 **and** 3 addresses for BIP44 for each wallet (6 total per wallet).
+   - Derives 3 addresses each for BIP84 **and** BIP44 (6 total per wallet).
+4. **Spanish Mnemonics, 24 words**:
+   ```bash
+   python walletrandomizer.py 1 2 bip49 -w 24 -l spanish
+   ```
+   - 1 wallet, 2 addresses, BIP49, **24-word** Spanish mnemonic.
 
 ---
 
 ### Output
 
-1. **Wallet Count** and **Addresses per Wallet**:  
-   Printed to the console (and to the log file if `-l` is used).
+1. **Wallet Count** and **Addresses per Wallet**  
+   Printed to the console (and to the log file if `--logfile` is used).
 
-2. **BIP Types**:  
+2. **BIP Types**  
    Shows which derivation paths were used (e.g., `bip84,bip44`).
 
-3. **Mnemonic**:  
-   The 12-word seed for each generated wallet.
+3. **Mnemonic**  
+   The BIP39 mnemonic words for each generated wallet.
 
-4. **Account XPRV / XPUB**:  
-   Master extended private/public keys at the account level, shown for each BIP type.
+4. **Account XPRV / XPUB**  
+   Master extended private/public keys at the account level, for each BIP type.
 
-5. **Derived Addresses**:  
-   A list of derived addresses for each BIP type.
+5. **Derived Addresses**  
+   A list of addresses for each BIP type.
 
-6. **Balance Checks**:  
-   Final balances fetched from your local node’s UTXO set (via `scantxoutset`).  
-   - No wallet RPC commands are used, so **`disablewallet=1`** is supported.
+6. **Balance Checks**  
+   Uses **`scantxoutset`** to get each address’s final balance from your local node.  
+   - **No** wallet RPC calls used → works with `disablewallet=1`.
 
-7. **Per-Wallet Summary**:  
-   Shows the combined BTC balance **across all BIP types** for that wallet.
+7. **Per-Wallet Summary**  
+   Displays the combined BTC balance **across all BIP types** for each wallet.
 
-8. **Grand Total**:  
-   Aggregate BTC balance for **all** addresses across **all** generated wallets and **all** BIP types.
+8. **Grand Total**  
+   The total BTC balance across **all** addresses in **all** wallets.
 
 ---
 
 ### Script Configuration
 
-- **RPC Credentials**:  
-  Edit the top of the script:
-  ```python
-  RPC_USER = "myrpcuser"
-  RPC_PASSWORD = "myrpcpassword"
-  RPC_URL = "http://127.0.0.1:8332"
-  ```
-  to match your `bitcoin.conf` settings.
+- **`.env` Credentials**  
+  - Put your user/pass/URL in `.env`:
+    ```bash
+    RPC_USER=user
+    RPC_PASSWORD=passwd
+    RPC_URL=http://127.0.0.1:8332
+    ```
+  - The script loads them automatically with `load_dotenv()`.
 
-- **Mnemonic Word Count**:  
-  The script currently generates 12-word BIP39 mnemonics. You can adjust this by changing `generate_random_mnemonic(word_count=12)` if you wish to use 24 words.
+- **Word Count & Language**  
+  - Defaults to 12 words and English.  
+  - Use `--wordcount 24` for 24 words.  
+  - Use `--language spanish` (etc.) for other languages.
 
 ---
 
 ### Troubleshooting
 
-- **Missing Dependencies**:  
-  If you see errors like `Error: The 'mnemonic' library is missing.`, install via:
-  ```bash
-  pip install mnemonic bip_utils requests
-  ```
+1. **Missing Dependencies**  
+   If you see something like:
+   ```bash
+   Error: The 'mnemonic' library is missing.
+   ```
+   Install via:
+   ```bash
+   pip install mnemonic bip_utils requests python-dotenv
+   ```
 
-- **Connection Refused**:  
-  Make sure Bitcoin Core is running with RPC enabled, and your `RPC_PORT` is correct (`8332` by default).
+2. **Connection Refused**  
+   Make sure Bitcoin Core is running with:
+   ```ini
+   server=1
+   rpcuser=user
+   rpcpassword=passwd
+   txindex=1
+   ```
+   and that `RPC_URL` matches (`http://127.0.0.1:8332`).
 
-- **Insufficient or No UTXOs**:  
-  If the local node returns `0 BTC` for addresses, it usually means those addresses have never received any transaction.
+3. **0 BTC Balances**  
+   Likely means those addresses never received any transactions.
 
-- **Logging Issues**:  
-  If the script cannot create the log file, it prints an error and exits.
+4. **Logging Issues**  
+   If the script can’t write the `.log` file, it prints an error. Check directory permissions.
 
-- **SSL Errors**:  
-  If you previously had `rpcssl=1` in `bitcoin.conf`, remove it and use `RPC_URL = "http://127.0.0.1:8332"` for local connections. Otherwise, you may see `[SSL: WRONG_VERSION_NUMBER]` or similar errors. If you need SSL, set up a separate proxy or stunnel.
+5. **SSL Errors**  
+   If you previously set `rpcssl=1`, remove it or set up a proxy. Official Bitcoin Core doesn’t support built-in SSL. Use plain HTTP (`127.0.0.1:8332`) or an external stunnel/Nginx.
