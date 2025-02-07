@@ -19,13 +19,11 @@ _log_file = None
 
 def log(*args, sep=" ", end="\n"):
     """
-    Custom logging function that prints to console
+    Custom logging function that prints to the console
     and also writes to a file if _log_file is open.
     """
     msg = sep.join(str(a) for a in args)
-    # Print to console
-    print(msg, end=end)
-    # If a log file is open, write to it as well
+    print(msg, end=end)  # Always print to console
     if _log_file is not None:
         _log_file.write(msg + end)
         _log_file.flush()
@@ -43,7 +41,7 @@ def _check_mnemonic_import():
         return
 
     try:
-        import mnemonic  # only to check import
+        import mnemonic  # just to check import presence
     except ImportError:
         msg = (
             "Error: The 'mnemonic' library is missing.\n"
@@ -60,7 +58,7 @@ def _check_bip_utils_import():
         return
 
     try:
-        import bip_utils  # only to check import
+        import bip_utils  # just to check import presence
     except ImportError:
         msg = (
             "Error: The 'bip_utils' library is missing.\n"
@@ -71,22 +69,27 @@ def _check_bip_utils_import():
         sys.exit(1)
     _bip_utils_import_checked = True
 
-def generate_random_mnemonic(word_count):
+def generate_random_mnemonic(word_count, language):
+    """
+    Generates a random BIP39 mnemonic in the specified language.
+    word_count should be 12 or 24.
+    """
     _check_mnemonic_import()
     from mnemonic import Mnemonic
 
     if word_count not in (12, 24):
         raise ValueError("Word count must be 12 or 24.")
 
-    mnemo = Mnemonic("english")
+    mnemo = Mnemonic(language)
     # For 12 words, use strength=128; for 24 words, strength=256
     strength = 128 if word_count == 12 else 256
     return mnemo.generate(strength=strength)
 
-def derive_addresses(bip_type, seed_phrase, max_addrs):
+def derive_addresses(bip_type, seed_phrase, max_addrs, language):
     """
     Derives addresses from a given BIP39 seed phrase (seed_phrase)
-    using the specified bip_type (bip44, bip49, bip84, bip86).
+    using the specified bip_type (bip44, bip49, bip84, bip86)
+    and the specified language wordlist for validation.
 
     Returns dict:
       {
@@ -106,10 +109,12 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
         Bip44Changes
     )
 
-    # Validate seed phrase
-    mnemo = Mnemonic("english")
+    # Validate seed phrase using the correct language
+    mnemo = Mnemonic(language)
     if not mnemo.check(seed_phrase):
-        raise ValueError("Invalid BIP39 seed phrase (checksum mismatch).")
+        raise ValueError(
+            f"Invalid BIP39 seed phrase for language '{language}' (checksum mismatch)."
+        )
 
     # Convert mnemonic to seed
     seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
@@ -136,8 +141,8 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
     addresses = []
     for i in range(max_addrs):
         child = account_node.Change(Bip44Changes.CHAIN_EXT).AddressIndex(i)
-        derived_address = child.PublicKey().ToAddress()
-        addresses.append(derived_address)
+        addr = child.PublicKey().ToAddress()
+        addresses.append(addr)
 
     return {
         "account_xprv": account_xprv,
@@ -147,7 +152,7 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
 
 
 ###############################################################################
-# CHECK WALLET
+# CHECK WALLET (NO getreceivedbyaddress)
 ###############################################################################
 def _fetch_data_local(address, rpc_user, rpc_password):
     """
@@ -169,7 +174,6 @@ def _fetch_data_local(address, rpc_user, rpc_password):
     headers = {"Authorization": f"Basic {auth_b64}"}
 
     try:
-        # final_balance (in BTC) via scantxoutset
         payload_scantxoutset = {
             "jsonrpc": "1.0",
             "id": "scantxoutset",
@@ -192,10 +196,7 @@ def _fetch_data_local(address, rpc_user, rpc_password):
         final_balance_btc = result.get("total_amount", 0.0)
         final_balance_sat = int(final_balance_btc * 100_000_000)
 
-        # Return dictionary with final_balance only
-        return {
-            "final_balance": final_balance_sat
-        }
+        return {"final_balance": final_balance_sat}
 
     except requests.RequestException as e:
         log(f"        RequestException fetching data for {address}: {e}")
@@ -218,7 +219,7 @@ def get_local_address_data(address):
 ###############################################################################
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate random BIP39 wallets and fetch balances from local Bitcoin Core."
+        description="Generate random BIP39 wallets (optionally in different languages) and fetch balances from local Bitcoin Core."
     )
     parser.add_argument(
         "num_wallets",
@@ -233,20 +234,36 @@ def main():
     parser.add_argument(
         "bip_types",
         type=str,
-        help=(
-            "Comma-separated list of BIP derivation types for address generation. "
-            "Allowed types: bip44, bip49, bip84, bip86. Example: 'bip84,bip44'"
-        )
+        help="Comma-separated list of BIP derivation types (e.g. 'bip84,bip44')."
     )
     parser.add_argument(
-        "-l", "--logfile",
+        "-L", "--logfile",
         action="store_true",
         help="If given, create a .log file in the script directory with a timestamp."
+    )
+    parser.add_argument(
+        "-w", "--wordcount",
+        type=int,
+        default=12,
+        choices=[
+            12, 24
+        ],
+        help="Mnemonic word count (default: 12)."
+    )
+    parser.add_argument(
+        "-l", "--language",
+        type=str,
+        default="english",
+        choices=[
+            "english", "french", "italian", "spanish", "japanese", 
+            "korean", "chinese_simplified", "chinese_traditional"
+        ],
+        help="BIP39 mnemonic language (default: english)."
     )
 
     args = parser.parse_args()
 
-    # Validate that num_wallets and num_addresses are > 0
+    # Validate numeric inputs
     if args.num_wallets < 1:
         log("Error: num_wallets must be at least 1.")
         sys.exit(1)
@@ -254,19 +271,20 @@ def main():
         log("Error: num_addresses must be at least 1.")
         sys.exit(1)
 
-    # Parse comma-separated BIP types
+    # Process comma-separated BIP types
     bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
     allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
     if not bip_types_list:
         log("Error: No valid BIP types specified.")
         sys.exit(1)
-    # Validate each requested bip
+
+    # Validate each requested BIP type
     for bip in bip_types_list:
         if bip not in allowed_bips:
             log(f"Error: Invalid BIP type '{bip}'. Must be one of {', '.join(allowed_bips)}.")
             sys.exit(1)
 
-    # If -l/--logfile is given, create a timestamped log file
+    # Optional log file
     if args.logfile:
         global _log_file
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -279,34 +297,43 @@ def main():
             log(f"Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
 
+    # Unpack arguments for clarity
     num_wallets = args.num_wallets
     num_addresses = args.num_addresses
+    language = args.language
+    word_count = args.wordcount
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
 
-    # Keep track of total balance across all wallets (all bip types)
+    # Keep track of total BTC across all wallets
     grand_total_sat = 0
 
-    log(f"\n===== WALLET RANDOMIZER =====\n")
-    log(f"# of Wallets:     {num_wallets}")
-    log(f"Addresses/Wallet: {num_addresses}")
-    log(f"BIP Type(s):      {', '.join(bip_types_list)}")
-    
-    log(f"\nTotal addresses:  {total_addrs}")
+    log("\n===== WALLET RANDOMIZER =====\n")
+    log(f"Number of Wallets:  {num_wallets}")
+    log(f"Addresses/Wallet:   {num_addresses}")
+    log(f"BIP Type(s):        {', '.join(bip_types_list)}")
+    log(f"Mnemonic Language:  {language}")
+    log(f"Word count:         {word_count}")
+    log(f"\nTotal addresses to derive: {total_addrs}")
 
     for w_i in range(num_wallets):
         log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
-        # Generate a 12-word mnemonic
-        mnemonic = generate_random_mnemonic(word_count=12)
+        # Generate a mnemonic in the chosen language
+        mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
         log(f"\n  Generated mnemonic: {mnemonic}")
 
-        # Track the total BTC for this wallet (across all bip types)
+        # Track this wallet's total BTC
         wallet_balance_sat = 0
 
-        # For each requested BIP type, derive addresses & fetch balances
+        # For each BIP type, derive addresses & fetch balances
         for bip_type in bip_types_list:
             log(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
-            derivation_info = derive_addresses(bip_type, mnemonic, max_addrs=num_addresses)
+            derivation_info = derive_addresses(
+                bip_type, 
+                mnemonic, 
+                max_addrs=num_addresses, 
+                language=language
+            )
             account_xprv = derivation_info["account_xprv"]
             account_xpub = derivation_info["account_xpub"]
             addresses = derivation_info["addresses"]
@@ -326,11 +353,11 @@ def main():
                 else:
                     log(f"        Could not fetch balance for address: {addr}")
 
-        # Print this wallet's total (across all BIP types)
+        # Print this wallet's total
         wallet_balance_btc = wallet_balance_sat / 1e8
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
-        # Add to the grand total
+        # Add to grand total
         grand_total_sat += wallet_balance_sat
 
     # After all wallets, print grand total
