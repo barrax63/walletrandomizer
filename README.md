@@ -13,7 +13,8 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
    You can provide one or more derivation types in a comma-separated list (e.g. `bip84,bip49`), and the script will derive addresses for **each** specified BIP type from the same mnemonic.
 
 3. **Local Bitcoin Core Balances**  
-   Fetches each derived address's balance from a locally running Bitcoin Core node (`bitcoind`) via JSON-RPC (`getreceivedbyaddress` and `scantxoutset`).
+   Fetches each derived address's **final balance** from a locally running Bitcoin Core node (`bitcoind`) via **`scantxoutset`**.  
+   - This works even if `disablewallet=1` is set in `bitcoin.conf`, because **no** wallet RPC calls are used.
 
 4. **Logging (Optional)**  
    Optionally create a `.log` file in the script directory by using the `-l/--logfile` flag. The log file will be named with a timestamp, e.g., `2025-02-07_14-30-59.log`, and will contain all console output.
@@ -85,7 +86,8 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
    A list of derived addresses for each BIP type.
 
 6. **Balance Checks**:  
-   Final balances fetched from your local node’s UTXO set (via `scantxoutset`).
+   Final balances fetched from your local node’s UTXO set (via `scantxoutset`).  
+   - No wallet RPC commands are used, so **`disablewallet=1`** is supported.
 
 7. **Per-Wallet Summary**:  
    Shows the combined BTC balance **across all BIP types** for that wallet.
@@ -127,3 +129,6 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
 
 - **Logging Issues**:  
   If the script cannot create the log file, it prints an error and exits.
+
+- **SSL Errors**:  
+  If you previously had `rpcssl=1` in `bitcoin.conf`, remove it and use `RPC_URL = "http://127.0.0.1:8332"` for local connections. Otherwise, you may see `[SSL: WRONG_VERSION_NUMBER]` or similar errors. If you need SSL, set up a separate proxy or stunnel.

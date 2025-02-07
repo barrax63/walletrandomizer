@@ -148,16 +148,15 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
 
 
 ###############################################################################
-# CHECK WALLET
+# CHECK WALLET (NO getreceivedbyaddress USAGE)
 ###############################################################################
 def _fetch_data_local(address, rpc_user, rpc_password):
     """
-    Fetch Bitcoin address data from local Bitcoin Core using 'getreceivedbyaddress'
-    and 'scantxoutset'.
+    Fetch Bitcoin address data from local Bitcoin Core using ONLY 'scantxoutset'.
+    We do NOT call 'getreceivedbyaddress', so 'disablewallet=1' is okay.
+
     Returns a dict:
       {
-        "total_received": int,  # sat
-        "total_sent": int,      # sat
         "final_balance": int    # sat
       }
     or None if there's an error.
@@ -171,53 +170,31 @@ def _fetch_data_local(address, rpc_user, rpc_password):
     headers = {"Authorization": f"Basic {auth_b64}"}
 
     try:
-        # 1) total_received (in BTC) via getreceivedbyaddress
-        payload_getreceived = {
-            "jsonrpc": "1.0",
-            "id": "getreceivedbyaddress",
-            "method": "getreceivedbyaddress",
-            "params": [address, 0]
-        }
-        r1 = requests.post(RPC_URL, json=payload_getreceived, headers=headers, timeout=15)
-        r1.raise_for_status()
-        resp1 = r1.json()
-        if "error" in resp1 and resp1["error"]:
-            log(f"  RPC error (getreceivedbyaddress): {resp1['error']}")
-            return None
-
-        total_received_btc = resp1.get("result", 0.0)
-        total_received_sat = int(total_received_btc * 100_000_000)
-
-        # 2) final_balance (in BTC) via scantxoutset
+        # final_balance (in BTC) via scantxoutset
         payload_scantxoutset = {
             "jsonrpc": "1.0",
             "id": "scantxoutset",
             "method": "scantxoutset",
             "params": ["start", [f"addr({address})"]]
         }
-        r2 = requests.post(RPC_URL, json=payload_scantxoutset, headers=headers, timeout=30)
-        r2.raise_for_status()
-        resp2 = r2.json()
-        if "error" in resp2 and resp2["error"]:
-            log(f"  RPC error (scantxoutset): {resp2['error']}")
+        r = requests.post(RPC_URL, json=payload_scantxoutset, headers=headers, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+
+        if "error" in resp and resp["error"]:
+            log(f"  RPC error (scantxoutset): {resp['error']}")
             return None
 
-        result2 = resp2.get("result", {})
-        if not result2.get("success", False):
+        result = resp.get("result", {})
+        if not result.get("success", False):
             log("  'scantxoutset' failed or returned no data.")
             return None
 
-        final_balance_btc = result2.get("total_amount", 0.0)
+        final_balance_btc = result.get("total_amount", 0.0)
         final_balance_sat = int(final_balance_btc * 100_000_000)
 
-        # 3) total_sent = total_received_sat - final_balance_sat
-        total_sent_sat = total_received_sat - final_balance_sat
-        if total_sent_sat < 0:
-            total_sent_sat = 0
-
+        # Return dictionary with final_balance only
         return {
-            "total_received": total_received_sat,
-            "total_sent": total_sent_sat,
             "final_balance": final_balance_sat
         }
 
@@ -231,7 +208,7 @@ def _fetch_data_local(address, rpc_user, rpc_password):
 def get_local_address_data(address):
     """
     Helper to fetch local RPC data for the given address.
-    Returns the dictionary structure or None on failure.
+    Returns a dict: {"final_balance": int} or None on failure.
     NO CACHING is applied.
     """
     return _fetch_data_local(address, RPC_USER, RPC_PASSWORD)
