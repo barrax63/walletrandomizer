@@ -2,6 +2,7 @@
 import sys
 import argparse
 import os
+import unicodedata
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -262,8 +263,8 @@ def main():
         type=str,
         default="english",
         choices=[
-            "english", "french", "italian", "spanish", "japanese", 
-            "korean", "chinese_simplified", "chinese_traditional"
+            "english", "french", "italian", "spanish", "korean", 
+            "chinese_simplified", "chinese_traditional"
         ],
         help="BIP39 mnemonic language (default: english)."
     )

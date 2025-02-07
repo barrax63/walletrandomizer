@@ -8,7 +8,7 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 
 1. **Random Mnemonic Generation**  
    - Generates a random BIP39 mnemonic in **12 words** (default) or **24 words** using `--wordcount`.
-   - Supports **various languages** (English, Spanish, French, Italian, Japanese, Korean, Chinese Simplified, Chinese Traditional) via `--language`.
+   - Supports **various languages** (English, Spanish, French, Italian, Korean, Chinese Simplified, Chinese Traditional) via `--language`.
 
 2. **Multiple BIP Types**  
    - Provide one or more derivation types in a comma-separated list, e.g. `bip84,bip49,bip44`, to derive addresses for each type from the same mnemonic.
@@ -62,7 +62,7 @@ Where:
 - **`-w, --wordcount {12,24}`**  
   Choose **12** (default) or **24** words for your mnemonic.  
 - **`-l, --language <lang>`**  
-  Select the mnemonic language (`english`, `french`, `italian`, `spanish`, `japanese`, `korean`, `chinese_simplified`, `chinese_traditional`). Defaults to **`english`**.
+  Select the mnemonic language (`english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`). Defaults to **`english`**.
 
 ---
 
