@@ -3,14 +3,21 @@ import sys
 import argparse
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
 ###############################################################################
-# STATIC RPC CREDENTIALS - ADJUST FOR YOUR BITCOIN CORE SETTINGS
+# LOAD RPC CONFIG FROM .env FILE
 ###############################################################################
-RPC_USER = "rpcuserbitcd"
-RPC_PASSWORD = ".qYgPPEZpdoqy83Z"
-RPC_URL = "http://127.0.0.1:8332"
+load_dotenv()  # Load .env file variables into environment
 
+RPC_USER = os.getenv("RPC_USER")
+RPC_PASSWORD = os.getenv("RPC_PASSWORD")
+RPC_URL = os.getenv("RPC_URL")
+
+if not RPC_USER or not RPC_PASSWORD or not RPC_URL:
+    print("Error: RPC credentials missing from .env file.")
+    sys.exit(1)
+    
 
 ###############################################################################
 # LOGGING SETUP
@@ -313,7 +320,7 @@ def main():
     log(f"BIP Type(s):        {', '.join(bip_types_list)}")
     log(f"Mnemonic Language:  {language}")
     log(f"Word count:         {word_count}")
-    log(f"\nTotal addresses to derive: {total_addrs}")
+    log(f"\nTotal addresses:    {total_addrs}")
 
     for w_i in range(num_wallets):
         log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
