@@ -8,8 +8,8 @@ from datetime import datetime
 ###############################################################################
 # STATIC RPC CREDENTIALS - ADJUST FOR YOUR BITCOIN CORE SETTINGS
 ###############################################################################
-RPC_USER = "myrpcuser"
-RPC_PASSWORD = "myrpcpassword"
+RPC_USER = "rpcuserbitcd"
+RPC_PASSWORD = ".qYgPPEZpdoqy83Z"
 RPC_URL = "http://127.0.0.1:8332"
 
 
