@@ -42,14 +42,6 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
      RPC_URL=http://127.0.0.1:8332
      ```
 
-3. **.env File**  
-   - Place a `.env` file **in the same directory** as the script:
-     ```bash
-     RPC_USER=user
-     RPC_PASSWORD=passwd
-     RPC_URL=http://127.0.0.1:8332
-     ```
-
 ---
 
 ### Usage
