@@ -292,9 +292,10 @@ def main():
     num_addresses = args.num_addresses
     bip_type = args.bip_type
 
-    total_balance_sat = 0
+    # Keep track of total balance across all wallets
+    grand_total_sat = 0
 
-    log(f"\n=== Wallet Randomizer ===")
+    log(f"\n===== Wallet Randomizer =====")
     log(f"Number of wallets: {num_wallets}")
     log(f"Addresses per wallet: {num_addresses}")
     log(f"BIP type: {bip_type}")
@@ -314,23 +315,31 @@ def main():
 
         log(f"  Account XPRV: {account_xprv}")
         log(f"  Account XPUB: {account_xpub}")
-        log(f"  Derived {len(addresses)} addresses:")
+        log(f"\n  Derived {len(addresses)} addresses:")
+
+        # Track the total BTC for this wallet
+        wallet_balance_sat = 0
 
         for addr in addresses:
             log(f"    {addr}")
-
-        # Fetch balances for each derived address
-        for addr in addresses:
             data = get_local_address_data(addr)
             if data is not None:
                 final_balance = data.get("final_balance", 0)
-                total_balance_sat += final_balance
+                wallet_balance_sat += final_balance
             else:
                 log(f"    Could not fetch balance for address: {addr}")
 
-    total_balance_btc = total_balance_sat / 1e8
-    log("\n=== SUMMARY ===")
-    log(f"Total final balance across all wallets/addresses: {total_balance_btc} BTC\n")
+        # Print this wallet's total
+        wallet_balance_btc = wallet_balance_sat / 1e8
+        log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
+
+        # Add to the grand total
+        grand_total_sat += wallet_balance_sat
+
+    # After all wallets, print grand total
+    grand_total_btc = grand_total_sat / 1e8
+    log(f"\n\n=== SUMMARY FOR ALL {num_wallets} WALLETS ===")
+    log(f"\nGRAND TOTAL BALANCE: {grand_total_btc} BTC\n")
 
     # Close log file if opened
     if _log_file is not None:
