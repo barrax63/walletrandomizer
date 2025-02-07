@@ -1,6 +1,6 @@
 ## Wallet Randomizer
 
-This Python script allows you to generate multiple random BIP39 wallets and check their addresses' balances using a local Bitcoin Core instance.
+This Python script allows you to generate multiple random BIP39 wallets and check their addresses' balances using a local Bitcoin Core instance. It supports multiple BIP types in a comma-separated list (e.g., `bip84,bip44`).
 
 ---
 
@@ -9,8 +9,8 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 1. **Random Mnemonic Generation**  
    Generates a random 12-word (or optional 24-word) BIP39 mnemonic for each wallet.
 
-2. **BIP Type Selection**  
-   Supports `bip44`, `bip49`, `bip84`, and `bip86` derivation.
+2. **Multiple BIP Types**  
+   You can provide one or more derivation types in a comma-separated list (e.g. `bip84,bip49`), and the script will derive addresses for **each** specified BIP type from the same mnemonic.
 
 3. **Local Bitcoin Core Balances**  
    Fetches each derived address's balance from a locally running Bitcoin Core node (`bitcoind`) via JSON-RPC (`getreceivedbyaddress` and `scantxoutset`).
@@ -37,12 +37,13 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 ### Usage
 
 ```bash
-python walletrandomizer.py <num_wallets> <num_addresses> <bip_type> [options]
+python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
 ```
 
 - **`<num_wallets>`**: Integer number of wallets to generate (must be > 0).  
 - **`<num_addresses>`**: Integer number of addresses to derive per wallet (must be > 0).  
-- **`<bip_type>`**: One of `bip44`, `bip49`, `bip84`, or `bip86`.
+- **`<bip_types>`**: A comma-separated list of one or more of `bip44`, `bip49`, `bip84`, or `bip86`.  
+  - Example: `bip84,bip44`  
 
 #### Optional Arguments
 
@@ -50,7 +51,7 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_type> [options]
 
 #### Examples
 
-1. **Generate 3 wallets, 5 addresses each, using BIP84**:
+1. **Generate 3 wallets, 5 addresses each, using only BIP84**:
    ```bash
    python walletrandomizer.py 3 5 bip84
    ```
@@ -58,31 +59,39 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_type> [options]
    ```bash
    python walletrandomizer.py 2 3 bip44 --logfile
    ```
+3. **Generate 2 wallets with multiple BIP types**:
+   ```bash
+   python walletrandomizer.py 2 3 bip84,bip44
+   ```
+   This will derive 3 addresses for BIP84 **and** 3 addresses for BIP44 for each wallet (6 total per wallet).
 
 ---
 
 ### Output
 
 1. **Wallet Count** and **Addresses per Wallet**:  
-   Printed to the console (and to log file if `-l` is used).
+   Printed to the console (and to the log file if `-l` is used).
 
-2. **BIP Type**:  
-   Which BIP derivation path was used.
+2. **BIP Types**:  
+   Shows which derivation paths were used (e.g., `bip84,bip44`).
 
 3. **Mnemonic**:  
    The 12-word seed for each generated wallet.
 
 4. **Account XPRV / XPUB**:  
-   Master extended private/public keys at the account level.
+   Master extended private/public keys at the account level, shown for each BIP type.
 
 5. **Derived Addresses**:  
-   A list of each wallet’s addresses.
+   A list of derived addresses for each BIP type.
 
 6. **Balance Checks**:  
    Final balances fetched from your local node’s UTXO set (via `scantxoutset`).
 
-7. **Summary**:  
-   Aggregate BTC balance for **all** addresses across **all** generated wallets.
+7. **Per-Wallet Summary**:  
+   Shows the combined BTC balance **across all BIP types** for that wallet.
+
+8. **Grand Total**:  
+   Aggregate BTC balance for **all** addresses across **all** generated wallets and **all** BIP types.
 
 ---
 
@@ -98,20 +107,23 @@ python walletrandomizer.py <num_wallets> <num_addresses> <bip_type> [options]
   to match your `bitcoin.conf` settings.
 
 - **Mnemonic Word Count**:  
-  The script currently hard-codes 12-word BIP39 mnemonics. You can adjust this in the `generate_random_mnemonic(word_count=12)` call if you wish to use 24 words.
+  The script currently generates 12-word BIP39 mnemonics. You can adjust this by changing `generate_random_mnemonic(word_count=12)` if you wish to use 24 words.
 
 ---
 
 ### Troubleshooting
 
 - **Missing Dependencies**:  
-  If you see errors like `Error: The 'mnemonic' library is missing.`, install it using `pip install mnemonic bip_utils requests`.
-  
+  If you see errors like `Error: The 'mnemonic' library is missing.`, install via:
+  ```bash
+  pip install mnemonic bip_utils requests
+  ```
+
 - **Connection Refused**:  
   Make sure Bitcoin Core is running with RPC enabled, and your `RPC_PORT` is correct (`8332` by default).
 
 - **Insufficient or No UTXOs**:  
-  If the local node returns balances of `0 BTC`, it might mean those derived addresses have never received funds.
+  If the local node returns `0 BTC` for addresses, it usually means those addresses have never received any transaction.
 
 - **Logging Issues**:  
   If the script cannot create the log file, it prints an error and exits.

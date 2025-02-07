@@ -116,13 +116,14 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
     seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
 
     # Create the correct bip object
-    if bip_type == "bip44":
+    bip_type_lower = bip_type.lower()
+    if bip_type_lower == "bip44":
         bip_obj = Bip44.FromSeed(seed_bytes, Bip44Coins.BITCOIN)
-    elif bip_type == "bip49":
+    elif bip_type_lower == "bip49":
         bip_obj = Bip49.FromSeed(seed_bytes, Bip49Coins.BITCOIN)
-    elif bip_type == "bip84":
+    elif bip_type_lower == "bip84":
         bip_obj = Bip84.FromSeed(seed_bytes, Bip84Coins.BITCOIN)
-    elif bip_type == "bip86":
+    elif bip_type_lower == "bip86":
         bip_obj = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN)
     else:
         raise ValueError(f"Unsupported BIP type: {bip_type}")
@@ -254,10 +255,12 @@ def main():
         help="Number of addresses per wallet (must be > 0)."
     )
     parser.add_argument(
-        "bip_type",
+        "bip_types",
         type=str,
-        choices=["bip44", "bip49", "bip84", "bip86"],
-        help="BIP derivation type for address generation."
+        help=(
+            "Comma-separated list of BIP derivation types for address generation. "
+            "Allowed types: bip44, bip49, bip84, bip86. Example: 'bip84,bip44'"
+        )
     )
     parser.add_argument(
         "-l", "--logfile",
@@ -275,6 +278,18 @@ def main():
         log("Error: num_addresses must be at least 1.")
         sys.exit(1)
 
+    # Parse comma-separated BIP types
+    bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
+    allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
+    if not bip_types_list:
+        log("Error: No valid BIP types specified.")
+        sys.exit(1)
+    # Validate each requested bip
+    for bip in bip_types_list:
+        if bip not in allowed_bips:
+            log(f"Error: Invalid BIP type '{bip}'. Must be one of {', '.join(allowed_bips)}.")
+            sys.exit(1)
+
     # If -l/--logfile is given, create a timestamped log file
     if args.logfile:
         global _log_file
@@ -290,46 +305,47 @@ def main():
 
     num_wallets = args.num_wallets
     num_addresses = args.num_addresses
-    bip_type = args.bip_type
 
-    # Keep track of total balance across all wallets
+    # Keep track of total balance across all wallets (all bip types)
     grand_total_sat = 0
 
     log(f"\n===== Wallet Randomizer =====")
     log(f"Number of wallets: {num_wallets}")
     log(f"Addresses per wallet: {num_addresses}")
-    log(f"BIP type: {bip_type}")
+    log(f"BIP type(s): {', '.join(bip_types_list)}")
 
     for w_i in range(num_wallets):
-        log(f"\n=== Wallet {w_i + 1}/{num_wallets} ===")
+        log(f"\n\n=== Wallet {w_i + 1}/{num_wallets} ===")
 
         # Generate a 12-word mnemonic
         mnemonic = generate_random_mnemonic(word_count=12)
-        log(f"  Generated mnemonic: {mnemonic}")
+        log(f"\n  Generated mnemonic: {mnemonic}")
 
-        # Derive addresses
-        derivation_info = derive_addresses(bip_type, mnemonic, max_addrs=num_addresses)
-        account_xprv = derivation_info["account_xprv"]
-        account_xpub = derivation_info["account_xpub"]
-        addresses = derivation_info["addresses"]
-
-        log(f"  Account XPRV: {account_xprv}")
-        log(f"  Account XPUB: {account_xpub}")
-        log(f"\n  Derived {len(addresses)} addresses:")
-
-        # Track the total BTC for this wallet
+        # Track the total BTC for this wallet (across all bip types)
         wallet_balance_sat = 0
 
-        for addr in addresses:
-            log(f"    {addr}")
-            data = get_local_address_data(addr)
-            if data is not None:
-                final_balance = data.get("final_balance", 0)
-                wallet_balance_sat += final_balance
-            else:
-                log(f"    Could not fetch balance for address: {addr}")
+        # For each requested BIP type, derive addresses & fetch balances
+        for bip_type in bip_types_list:
+            log(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
+            derivation_info = derive_addresses(bip_type, mnemonic, max_addrs=num_addresses)
+            account_xprv = derivation_info["account_xprv"]
+            account_xpub = derivation_info["account_xpub"]
+            addresses = derivation_info["addresses"]
 
-        # Print this wallet's total
+            log(f"    Account Extended Private Key: {account_xprv}")
+            log(f"    Account Extended Public Key:  {account_xpub}")
+            log(f"\n    Derived {len(addresses)} addresses:")
+
+            for addr in addresses:
+                log(f"      {addr}")
+                data = get_local_address_data(addr)
+                if data is not None:
+                    final_balance = data.get("final_balance", 0)
+                    wallet_balance_sat += final_balance
+                else:
+                    log(f"      Could not fetch balance for address: {addr}")
+
+        # Print this wallet's total (across all BIP types)
         wallet_balance_btc = wallet_balance_sat / 1e8
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
@@ -338,8 +354,8 @@ def main():
 
     # After all wallets, print grand total
     grand_total_btc = grand_total_sat / 1e8
-    log(f"\n\n=== SUMMARY FOR ALL {num_wallets} WALLETS ===")
-    log(f"\nGRAND TOTAL BALANCE: {grand_total_btc} BTC\n")
+    log("\n\n=== SUMMARY ===")
+    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n {grand_total_btc} BTC\n")
 
     # Close log file if opened
     if _log_file is not None:
