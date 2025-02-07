@@ -281,17 +281,20 @@ def main():
 
     num_wallets = args.num_wallets
     num_addresses = args.num_addresses
+    total_addrs = num_wallets * num_addresses * len(bip_types_list)
 
     # Keep track of total balance across all wallets (all bip types)
     grand_total_sat = 0
 
-    log(f"\n===== Wallet Randomizer =====")
-    log(f"Number of wallets: {num_wallets}")
-    log(f"Addresses per wallet: {num_addresses}")
-    log(f"BIP type(s): {', '.join(bip_types_list)}")
+    log(f"\n===== WALLET RANDOMIZER =====\n")
+    log(f"# of Wallets:     {num_wallets}")
+    log(f"Addresses/Wallet: {num_addresses}")
+    log(f"BIP Type(s):      {', '.join(bip_types_list)}")
+    
+    log(f"\nTotal addresses:  {total_addrs}")
 
     for w_i in range(num_wallets):
-        log(f"\n\n=== Wallet {w_i + 1}/{num_wallets} ===")
+        log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
         # Generate a 12-word mnemonic
         mnemonic = generate_random_mnemonic(word_count=12)
@@ -333,7 +336,7 @@ def main():
     # After all wallets, print grand total
     grand_total_btc = grand_total_sat / 1e8
     log("\n\n=== SUMMARY ===")
-    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n {grand_total_btc} BTC\n")
+    log(f"\nGRAND TOTAL BALANCE ACROSS ALL ADDRESSES/WALLETS:\n\n {grand_total_btc} BTC\n")
 
     # Close log file if opened
     if _log_file is not None:
