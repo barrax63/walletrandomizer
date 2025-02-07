@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import time
 import argparse
 import os
 from datetime import datetime
@@ -148,7 +147,7 @@ def derive_addresses(bip_type, seed_phrase, max_addrs):
 
 
 ###############################################################################
-# CHECK WALLET (NO getreceivedbyaddress USAGE)
+# CHECK WALLET
 ###############################################################################
 def _fetch_data_local(address, rpc_user, rpc_password):
     """
@@ -177,17 +176,17 @@ def _fetch_data_local(address, rpc_user, rpc_password):
             "method": "scantxoutset",
             "params": ["start", [f"addr({address})"]]
         }
-        r = requests.post(RPC_URL, json=payload_scantxoutset, headers=headers, timeout=30)
+        r = requests.post(RPC_URL, json=payload_scantxoutset, headers=headers, timeout=3)
         r.raise_for_status()
         resp = r.json()
 
         if "error" in resp and resp["error"]:
-            log(f"  RPC error (scantxoutset): {resp['error']}")
+            log(f"        RPC error (scantxoutset): {resp['error']}")
             return None
 
         result = resp.get("result", {})
         if not result.get("success", False):
-            log("  'scantxoutset' failed or returned no data.")
+            log("        'scantxoutset' failed or returned no data.")
             return None
 
         final_balance_btc = result.get("total_amount", 0.0)
@@ -199,10 +198,10 @@ def _fetch_data_local(address, rpc_user, rpc_password):
         }
 
     except requests.RequestException as e:
-        log(f"  RequestException fetching data for {address}: {e}")
+        log(f"        RequestException fetching data for {address}: {e}")
         return None
     except Exception as e:
-        log(f"  Unexpected exception for {address}: {e}")
+        log(f"        Unexpected exception for {address}: {e}")
         return None
 
 def get_local_address_data(address):
@@ -317,10 +316,12 @@ def main():
                 log(f"      {addr}")
                 data = get_local_address_data(addr)
                 if data is not None:
-                    final_balance = data.get("final_balance", 0)
-                    wallet_balance_sat += final_balance
+                    final_balance_sat = data.get("final_balance", 0)
+                    wallet_balance_sat += final_balance_sat
+                    final_balance_btc = final_balance_sat / 1e8
+                    log(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
                 else:
-                    log(f"      Could not fetch balance for address: {addr}")
+                    log(f"        Could not fetch balance for address: {addr}")
 
         # Print this wallet's total (across all BIP types)
         wallet_balance_btc = wallet_balance_sat / 1e8
