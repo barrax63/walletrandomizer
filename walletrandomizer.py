@@ -2,23 +2,17 @@
 import sys
 import argparse
 import os
-import unicodedata
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 
 ###############################################################################
-# LOAD RPC CONFIG FROM .env FILE
+# LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
 ###############################################################################
 load_dotenv()  # Load .env file variables into environment
 
-RPC_USER = os.getenv("RPC_USER")
-RPC_PASSWORD = os.getenv("RPC_PASSWORD")
-RPC_URL = os.getenv("RPC_URL")
-
-if not RPC_USER or not RPC_PASSWORD or not RPC_URL:
-    print("Error: RPC credentials missing from .env file.")
-    sys.exit(1)
-    
+FULCRUM_HOST = os.getenv("FULCRUM_HOST")
+FULCRUM_PORT = int(os.getenv("FULCRUM_PORT"))
 
 ###############################################################################
 # LOGGING SETUP
@@ -38,7 +32,7 @@ def log(*args, sep=" ", end="\n"):
 
 
 ###############################################################################
-# GENERATE WALLET
+# IMPORT CHECKS
 ###############################################################################
 _mnemonic_import_checked = False
 _bip_utils_import_checked = False
@@ -47,13 +41,12 @@ def _check_mnemonic_import():
     global _mnemonic_import_checked
     if _mnemonic_import_checked:
         return
-
     try:
-        import mnemonic  # just to check import presence
+        import mnemonic  # check presence
     except ImportError:
         msg = (
             "Error: The 'mnemonic' library is missing.\n"
-            "Please install it by running:\n\n"
+            "Please install it by running:\n"
             "    pip install mnemonic\n"
         )
         log(msg)
@@ -64,23 +57,25 @@ def _check_bip_utils_import():
     global _bip_utils_import_checked
     if _bip_utils_import_checked:
         return
-
     try:
-        import bip_utils  # just to check import presence
+        import bip_utils  # check presence
     except ImportError:
         msg = (
             "Error: The 'bip_utils' library is missing.\n"
-            "Please install it by running:\n\n"
+            "Please install it by running:\n"
             "    pip install bip_utils\n"
         )
         log(msg)
         sys.exit(1)
     _bip_utils_import_checked = True
 
-def generate_random_mnemonic(word_count, language):
+
+###############################################################################
+# MNEMONIC / ADDRESS GENERATION
+###############################################################################
+def generate_random_mnemonic(word_count=12, language="english"):
     """
-    Generates a random BIP39 mnemonic in the specified language.
-    word_count should be 12 or 24.
+    Generates a random BIP39 mnemonic in the specified language (12 or 24 words).
     """
     _check_mnemonic_import()
     from mnemonic import Mnemonic
@@ -93,18 +88,10 @@ def generate_random_mnemonic(word_count, language):
     strength = 128 if word_count == 12 else 256
     return mnemo.generate(strength=strength)
 
-def derive_addresses(bip_type, seed_phrase, max_addrs, language):
+def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
     """
-    Derives addresses from a given BIP39 seed phrase (seed_phrase)
-    using the specified bip_type (bip44, bip49, bip84, bip86)
-    and the specified language wordlist for validation.
-
-    Returns dict:
-      {
-        "account_xprv": str,
-        "account_xpub": str,
-        "addresses": [ list of derived addresses ]
-      }
+    Derives addresses from a given BIP39 seed phrase using bip44, bip49, bip84, or bip86.
+    Returns: { "account_xprv", "account_xpub", "addresses" }
     """
     _check_mnemonic_import()
     _check_bip_utils_import()
@@ -117,7 +104,7 @@ def derive_addresses(bip_type, seed_phrase, max_addrs, language):
         Bip44Changes
     )
 
-    # Validate seed phrase using the correct language
+    # Validate seed phrase
     mnemo = Mnemonic(language)
     if not mnemo.check(seed_phrase):
         raise ValueError(
@@ -140,7 +127,7 @@ def derive_addresses(bip_type, seed_phrase, max_addrs, language):
     else:
         raise ValueError(f"Unsupported BIP type: {bip_type}")
 
-    # Get the "account" node (depth=3): m/purpose'/coin'/account'
+    # Derive account node and external addresses
     account_node = bip_obj.Purpose().Coin().Account(0)
     account_xprv = account_node.PrivateKey().ToExtended()
     account_xpub = account_node.PublicKey().ToExtended()
@@ -160,74 +147,73 @@ def derive_addresses(bip_type, seed_phrase, max_addrs, language):
 
 
 ###############################################################################
-# CHECK WALLET (NO getreceivedbyaddress)
+# FULCRUM ELECTRUM PROTOCOL QUERY
 ###############################################################################
-def _fetch_data_local(address, rpc_user, rpc_password):
+def _fetch_data_fulcrum(address, host, port):
     """
-    Fetch Bitcoin address data from local Bitcoin Core using ONLY 'scantxoutset'.
-    We do NOT call 'getreceivedbyaddress', so 'disablewallet=1' is okay.
+    Connect to a local Fulcrum server (Electrum protocol) at host:port (TCP, no SSL).
+    Query the 'blockchain.address.get_balance' method for the given address.
 
     Returns a dict:
-      {
-        "final_balance": int    # sat
-      }
+      { "final_balance": int }   # sat
     or None if there's an error.
     """
-    import requests
-    from base64 import b64encode
-
-    # Prepare RPC auth header
-    auth_str = f"{rpc_user}:{rpc_password}".encode("utf-8")
-    auth_b64 = b64encode(auth_str).decode("utf-8")
-    headers = {"Authorization": f"Basic {auth_b64}"}
-
+    import socket
     try:
-        payload_scantxoutset = {
-            "jsonrpc": "1.0",
-            "id": "scantxoutset",
-            "method": "scantxoutset",
-            "params": ["start", [f"addr({address})"]]
-        }
-        r = requests.post(RPC_URL, json=payload_scantxoutset, headers=headers, timeout=3)
-        r.raise_for_status()
-        resp = r.json()
+        # 1) Connect to Fulcrum (TCP)
+        with socket.create_connection((host, port), timeout=5) as s:
+            # 2) Build the JSON request
+            req = {
+                "id": 0,
+                "method": "blockchain.address.get_balance",
+                "params": [address]
+            }
+            # 3) Send request (terminated by newline)
+            s.sendall((json.dumps(req) + "\n").encode("utf-8"))
 
-        if "error" in resp and resp["error"]:
-            log(f"        RPC error (scantxoutset): {resp['error']}")
-            return None
+            # 4) Read one line of JSON response
+            f = s.makefile()  # Turn into a file-like
+            line = f.readline()
+            if not line:
+                log(f"        No response for address: {address}")
+                return None
 
-        result = resp.get("result", {})
-        if not result.get("success", False):
-            log("        'scantxoutset' failed or returned no data.")
-            return None
+            resp = json.loads(line)
+            if "error" in resp:
+                log(f"        Fulcrum error: {resp['error']}")
+                return None
 
-        final_balance_btc = result.get("total_amount", 0.0)
-        final_balance_sat = int(final_balance_btc * 100_000_000)
+            result = resp.get("result", {})
+            # 'result' looks like: {"confirmed": <int sat>, "unconfirmed": <int sat>}
+            confirmed = result.get("confirmed", 0)
+            unconfirmed = result.get("unconfirmed", 0)
+            final_balance_sat = confirmed + unconfirmed
 
-        return {"final_balance": final_balance_sat}
+            return {"final_balance": final_balance_sat}
 
-    except requests.RequestException as e:
-        log(f"        RequestException fetching data for {address}: {e}")
+    except socket.timeout:
+        log(f"        Timeout connecting to Fulcrum for {address}")
         return None
     except Exception as e:
-        log(f"        Unexpected exception for {address}: {e}")
+        log(f"        Exception fetching data from Fulcrum for {address}: {e}")
         return None
 
-def get_local_address_data(address):
+
+def get_address_data(address):
     """
-    Helper to fetch local RPC data for the given address.
-    Returns a dict: {"final_balance": int} or None on failure.
-    NO CACHING is applied.
+    Wrapper to get final balance from Fulcrum's Electrum protocol.
+    Return dict {"final_balance": int} or None if error.
     """
-    return _fetch_data_local(address, RPC_USER, RPC_PASSWORD)
+    return _fetch_data_fulcrum(address, FULCRUM_HOST, FULCRUM_PORT)
 
 
 ###############################################################################
-# MAIN SCRIPT LOGIC
+# MAIN SCRIPT
 ###############################################################################
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate random BIP39 wallets (optionally in different languages) and fetch balances from local Bitcoin Core."
+        description="Generate random BIP39 wallets (optionally in different languages) "
+                    "and fetch balances from Fulcrum (Electrum server)."
     )
     parser.add_argument(
         "num_wallets",
@@ -253,9 +239,7 @@ def main():
         "-w", "--wordcount",
         type=int,
         default=12,
-        choices=[
-            12, 24
-        ],
+        choices=[12, 24],
         help="Mnemonic word count (default: 12)."
     )
     parser.add_argument(
@@ -263,7 +247,7 @@ def main():
         type=str,
         default="english",
         choices=[
-            "english", "french", "italian", "spanish", "korean", 
+            "english", "french", "italian", "spanish", "korean",
             "chinese_simplified", "chinese_traditional"
         ],
         help="BIP39 mnemonic language (default: english)."
@@ -279,7 +263,7 @@ def main():
         log("Error: num_addresses must be at least 1.")
         sys.exit(1)
 
-    # Process comma-separated BIP types
+    # Process BIP types
     bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
     allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
     if not bip_types_list:
@@ -310,6 +294,7 @@ def main():
     num_addresses = args.num_addresses
     language = args.language
     word_count = args.wordcount
+
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
 
     # Keep track of total BTC across all wallets
@@ -330,16 +315,16 @@ def main():
         mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
         log(f"\n  Generated mnemonic: {mnemonic}")
 
-        # Track this wallet's total BTC
+        # Track total BTC for this wallet
         wallet_balance_sat = 0
 
-        # For each BIP type, derive addresses & fetch balances
+        # Derive addresses + fetch balances from Fulcrum
         for bip_type in bip_types_list:
             log(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
             derivation_info = derive_addresses(
-                bip_type, 
-                mnemonic, 
-                max_addrs=num_addresses, 
+                bip_type,
+                mnemonic,
+                max_addrs=num_addresses,
                 language=language
             )
             account_xprv = derivation_info["account_xprv"]
@@ -352,7 +337,7 @@ def main():
 
             for addr in addresses:
                 log(f"      {addr}")
-                data = get_local_address_data(addr)
+                data = get_address_data(addr)
                 if data is not None:
                     final_balance_sat = data.get("final_balance", 0)
                     wallet_balance_sat += final_balance_sat
@@ -361,17 +346,17 @@ def main():
                 else:
                     log(f"        Could not fetch balance for address: {addr}")
 
-        # Print this wallet's total
+        # Summarize wallet total
         wallet_balance_btc = wallet_balance_sat / 1e8
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
-        # Add to grand total
+        # Add to overall total
         grand_total_sat += wallet_balance_sat
 
-    # After all wallets, print grand total
+    # Final summary
     grand_total_btc = grand_total_sat / 1e8
     log("\n\n=== SUMMARY ===")
-    log(f"\nGRAND TOTAL BALANCE ACROSS ALL ADDRESSES/WALLETS:\n\n {grand_total_btc} BTC\n")
+    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS/ADDRESSES:\n\n {grand_total_btc} BTC\n")
 
     # Close log file if opened
     if _log_file is not None:
