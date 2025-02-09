@@ -12,6 +12,7 @@ import os
 import json
 import socket
 import hashlib
+import time
 from datetime import datetime
 
 ###############################################################################
@@ -461,6 +462,9 @@ def main():
 
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
     grand_total_sat = 0
+    
+    # Start timing
+    start_time = time.time()
 
     # Print initial info (always shown on console)
     log("\n===== WALLET RANDOMIZER =====\n", always=True)
@@ -523,10 +527,17 @@ def main():
 
         grand_total_sat += wallet_balance_sat
 
+    # Compute total time elapsed
+    elapsed_s = time.time() - start_time
+    hours = int(elapsed_s // 3600)
+    minutes = int((elapsed_s % 3600) // 60)
+    seconds = elapsed_s % 60
+    
     # After all wallets, print summary lines (always)
     grand_total_btc = grand_total_sat / 1e8
     log("\n\n=== SUMMARY ===", always=True)
     log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS/ADDRESSES:\n\n {grand_total_btc} BTC\n", always=True)
+    log(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n", always=True)
 
     # Close connection
     client.close()
