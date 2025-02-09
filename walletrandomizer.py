@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
+"""
+wallet_randomizer_fulcrum.py
+
+Generates random BIP39 wallets, derives addresses for specified BIP types (bip44/bip49/bip84/bip86),
+and fetches their final balances using a local Fulcrum Electrum server (via scripthash).
+
+Requires:
+- Python 3.7+
+- mnemonic, bip_utils, requests, python-dotenv, base58
+- A .env file defining FULCRUM_HOST and FULCRUM_PORT
+"""
+
 import sys
 import argparse
 import os
 import json
+import hashlib
 from datetime import datetime
 from dotenv import load_dotenv
-
-import hashlib
 from base58 import b58decode
 from bip_utils.bech32 import SegwitBech32Decoder
 
 ###############################################################################
 # LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
 ###############################################################################
-load_dotenv()  # Load .env file variables into environment
-
-FULCRUM_HOST = os.getenv("FULCRUM_HOST")
-FULCRUM_PORT = int(os.getenv("FULCRUM_PORT"))
+load_dotenv()  # Load .env variables for Fulcrum connection
+FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")  # fallback
+FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))  # fallback
 
 ###############################################################################
 # LOGGING SETUP
@@ -34,7 +44,6 @@ def log(*args, sep=" ", end="\n"):
         _log_file.write(msg + end)
         _log_file.flush()
 
-
 ###############################################################################
 # IMPORT CHECKS
 ###############################################################################
@@ -42,11 +51,14 @@ _mnemonic_import_checked = False
 _bip_utils_import_checked = False
 
 def _check_mnemonic_import():
+    """
+    Checks if 'mnemonic' is installed; exits with error if missing.
+    """
     global _mnemonic_import_checked
     if _mnemonic_import_checked:
         return
     try:
-        import mnemonic  # check presence
+        import mnemonic  # Just to test the import presence
     except ImportError:
         msg = (
             "Error: The 'mnemonic' library is missing.\n"
@@ -58,11 +70,14 @@ def _check_mnemonic_import():
     _mnemonic_import_checked = True
 
 def _check_bip_utils_import():
+    """
+    Checks if 'bip_utils' is installed; exits with error if missing.
+    """
     global _bip_utils_import_checked
     if _bip_utils_import_checked:
         return
     try:
-        import bip_utils  # check presence
+        import bip_utils
     except ImportError:
         msg = (
             "Error: The 'bip_utils' library is missing.\n"
@@ -73,13 +88,13 @@ def _check_bip_utils_import():
         sys.exit(1)
     _bip_utils_import_checked = True
 
-
 ###############################################################################
 # MNEMONIC / ADDRESS GENERATION
 ###############################################################################
 def generate_random_mnemonic(word_count=12, language="english"):
     """
-    Generates a random BIP39 mnemonic in the specified language (12 or 24 words).
+    Generates a random BIP39 mnemonic in the specified language.
+    word_count can be 12 or 24.
     """
     _check_mnemonic_import()
     from mnemonic import Mnemonic
@@ -95,7 +110,12 @@ def generate_random_mnemonic(word_count=12, language="english"):
 def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
     """
     Derives addresses from a given BIP39 seed phrase using bip44, bip49, bip84, or bip86.
-    Returns: { "account_xprv", "account_xpub", "addresses" }
+    Returns a dict with:
+      {
+        "account_xprv": str,
+        "account_xpub": str,
+        "addresses": [ list of derived addresses ]
+      }
     """
     _check_mnemonic_import()
     _check_bip_utils_import()
@@ -108,14 +128,14 @@ def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
         Bip44Changes
     )
 
-    # Validate seed phrase
+    # Validate the seed phrase with the correct language
     mnemo = Mnemonic(language)
     if not mnemo.check(seed_phrase):
         raise ValueError(
             f"Invalid BIP39 seed phrase for language '{language}' (checksum mismatch)."
         )
 
-    # Convert mnemonic to seed
+    # Convert mnemonic to seed bytes
     seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
 
     # Create the correct bip object
@@ -131,7 +151,7 @@ def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
     else:
         raise ValueError(f"Unsupported BIP type: {bip_type}")
 
-    # Derive account node and external addresses
+    # Derive the account node (m/purpose'/coin'/account')
     account_node = bip_obj.Purpose().Coin().Account(0)
     account_xprv = account_node.PrivateKey().ToExtended()
     account_xpub = account_node.PublicKey().ToExtended()
@@ -149,49 +169,44 @@ def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
         "addresses": addresses
     }
 
+###############################################################################
+# SCRIPT/HASH UTILS (for scripthash-based queries)
+###############################################################################
 def address_to_scriptPubKey(address: str) -> bytes:
     """
     Convert a BTC base58/bech32 address to its scriptPubKey in bytes.
-    Now includes BIP86 (Taproot) support for witness version=1, 32-byte data.
+    Supports:
+      - Legacy (1... => P2PKH, 3... => P2SH)
+      - Bech32 v0 (bc1q... => P2WPKH/P2WSH)
+      - Bech32 v1 (bc1p... => P2TR / Taproot, BIP86)
     """
     address = address.strip()
 
-    # 1) Check if bech32 (bc1...)
+    # Check bech32 (bc1...)
     if address.lower().startswith("bc1"):
-        from bip_utils.bech32 import SegwitBech32Decoder
         hrp = "bc"  # mainnet
         wit_ver, wit_data = SegwitBech32Decoder.Decode(hrp, address)
-
         # P2WPKH
         if wit_ver == 0 and len(wit_data) == 20:
-            # OP_0 <20-byte-hash>
             return b"\x00\x14" + wit_data
-
         # P2WSH
         elif wit_ver == 0 and len(wit_data) == 32:
-            # OP_0 <32-byte-hash>
             return b"\x00\x20" + wit_data
-
-        # P2TR (Taproot / BIP86)
+        # P2TR (Taproot, BIP86)
         elif wit_ver == 1 and len(wit_data) == 32:
-            # OP_1 <32-byte-pubkey>
-            # 0x51 is OP_1
-            # 0x20 is the pushdata length (32 bytes)
             return b"\x51\x20" + wit_data
-
-        # Future witness versions/lengths could go here...
         else:
-            raise ValueError(f"Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}")
-
-    # 2) Otherwise, assume base58 (legacy 1... or 3...)
+            raise ValueError(
+                f"Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}"
+            )
     else:
-        from base58 import b58decode
+        # base58 decode (legacy addresses: 1..., 3...)
         raw = b58decode(address)
         if len(raw) < 5:
             raise ValueError(f"Invalid base58 decode length for {address}")
 
         version = raw[0]
-        payload = raw[1:-4]  # last 4 bytes are checksum
+        payload = raw[1:-4]  # the last 4 bytes are checksum
         if version == 0:
             # P2PKH => OP_DUP OP_HASH160 <20-byte> OP_EQUALVERIFY OP_CHECKSIG
             return b"\x76\xa9\x14" + payload + b"\x88\xac"
@@ -202,21 +217,30 @@ def address_to_scriptPubKey(address: str) -> bytes:
             raise ValueError(f"Unsupported base58 version byte: {version}")
 
 def script_to_scripthash(script: bytes) -> str:
-    """Compute Electrum scripthash from scriptPubKey => sha256(script), reversed, hex."""
+    """
+    Compute Electrum scripthash from a scriptPubKey:
+      scripthash = sha256(scriptPubKey)[::-1].hex()
+    """
     sha = hashlib.sha256(script).digest()
     return sha[::-1].hex()
 
 def address_to_scripthash(address: str) -> str:
-    """address -> scriptPubKey -> scripthash(hex)."""
+    """
+    Helper: address -> scriptPubKey -> scripthash(hex).
+    """
     spk = address_to_scriptPubKey(address)
     return script_to_scripthash(spk)
-
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY
 ###############################################################################
 def _fetch_data_fulcrum(address: str, host: str, port: int):
-    import socket, json
+    """
+    Connect to a local Fulcrum server via TCP, no SSL.
+    Query 'blockchain.scripthash.get_balance' for the address's scripthash.
+    Returns: {"final_balance": int} in satoshis, or None on error.
+    """
+    import socket
 
     # Convert address -> scripthash
     scripthash_hex = address_to_scripthash(address)
@@ -256,34 +280,32 @@ def _fetch_data_fulcrum(address: str, host: str, port: int):
 
 def get_address_data(address):
     """
-    Wrapper to get final balance from Fulcrum's Electrum protocol.
-    Return dict {"final_balance": int} or None if error.
+    High-level wrapper to get final balance from Fulcrum's Electrum protocol.
+    Returns dict {"final_balance": int} or None if error.
     """
     return _fetch_data_fulcrum(address, FULCRUM_HOST, FULCRUM_PORT)
-
 
 ###############################################################################
 # MAIN SCRIPT
 ###############################################################################
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate random BIP39 wallets (optionally in different languages) "
-                    "and fetch balances from Fulcrum (Electrum server)."
+        description="Generate random BIP39 wallets and fetch address balances from Fulcrum."
     )
     parser.add_argument(
         "num_wallets",
         type=int,
-        help="Number of wallets to generate (must be > 0)."
+        help="Number of wallets to generate (must be >= 1)."
     )
     parser.add_argument(
         "num_addresses",
         type=int,
-        help="Number of addresses per wallet (must be > 0)."
+        help="Number of addresses per wallet (must be >= 1)."
     )
     parser.add_argument(
         "bip_types",
         type=str,
-        help="Comma-separated list of BIP derivation types (e.g. 'bip84,bip44')."
+        help="Comma-separated BIP derivation types: 'bip44,bip49,bip84,bip86'"
     )
     parser.add_argument(
         "-L", "--logfile",
@@ -301,10 +323,8 @@ def main():
         "-l", "--language",
         type=str,
         default="english",
-        choices=[
-            "english", "french", "italian", "spanish", "korean",
-            "chinese_simplified", "chinese_traditional"
-        ],
+        choices=["english", "french", "italian", "spanish", "korean",
+                 "chinese_simplified", "chinese_traditional"],
         help="BIP39 mnemonic language (default: english)."
     )
 
@@ -312,10 +332,10 @@ def main():
 
     # Validate numeric inputs
     if args.num_wallets < 1:
-        log("Error: num_wallets must be at least 1.")
+        log("Error: num_wallets must be >= 1.")
         sys.exit(1)
     if args.num_addresses < 1:
-        log("Error: num_addresses must be at least 1.")
+        log("Error: num_addresses must be >= 1.")
         sys.exit(1)
 
     # Process BIP types
@@ -325,15 +345,15 @@ def main():
         log("Error: No valid BIP types specified.")
         sys.exit(1)
 
-    # Validate each requested BIP type
+    # Validate each requested bip
     for bip in bip_types_list:
         if bip not in allowed_bips:
-            log(f"Error: Invalid BIP type '{bip}'. Must be one of {', '.join(allowed_bips)}.")
+            log(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
             sys.exit(1)
 
     # Optional log file
+    global _log_file
     if args.logfile:
-        global _log_file
         script_dir = os.path.dirname(os.path.abspath(__file__))
         timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         log_filename = f"{timestamp_str}.log"
@@ -344,36 +364,38 @@ def main():
             log(f"Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
 
-    # Unpack arguments for clarity
+    # Unpack arguments
     num_wallets = args.num_wallets
     num_addresses = args.num_addresses
     language = args.language
     word_count = args.wordcount
 
+    # Summaries
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
 
     # Keep track of total BTC across all wallets
     grand_total_sat = 0
 
     log("\n===== WALLET RANDOMIZER =====\n")
-    log(f"Number of Wallets:  {num_wallets}")
-    log(f"Addresses/Wallet:   {num_addresses}")
-    log(f"BIP Type(s):        {', '.join(bip_types_list)}")
-    log(f"Mnemonic Language:  {language}")
-    log(f"Word count:         {word_count}")
-    log(f"\nTotal addresses:    {total_addrs}")
+    log(f"Number of Wallets:    {num_wallets}")
+    log(f"Addresses per Wallet: {num_addresses}")
+    log(f"BIP Type(s):          {', '.join(bip_types_list)}")
+    log(f"Mnemonic Language:    {language}")
+    log(f"Word count:           {word_count}")
+    log(f"\nTotal addresses:      {total_addrs}")
 
+    # Main loop: generate wallets, derive addresses, get balances
     for w_i in range(num_wallets):
         log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
-        # Generate a mnemonic in the chosen language
+        # 1) Generate mnemonic
         mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
         log(f"\n  Generated mnemonic: {mnemonic}")
 
-        # Track total BTC for this wallet
+        # 2) Summation for this wallet
         wallet_balance_sat = 0
 
-        # Derive addresses + fetch balances from Fulcrum
+        # 3) For each BIP type, derive addresses & fetch balances
         for bip_type in bip_types_list:
             log(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
             derivation_info = derive_addresses(
@@ -390,6 +412,7 @@ def main():
             log(f"    Account Extended Public Key:  {account_xpub}")
             log(f"\n    Derived {len(addresses)} addresses:")
 
+            # 4) Query each address from Fulcrum
             for addr in addresses:
                 log(f"      {addr}")
                 data = get_address_data(addr)
@@ -401,11 +424,11 @@ def main():
                 else:
                     log(f"        Could not fetch balance for address: {addr}")
 
-        # Summarize wallet total
+        # 5) Summarize wallet total
         wallet_balance_btc = wallet_balance_sat / 1e8
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
-        # Add to overall total
+        # 6) Add to grand total
         grand_total_sat += wallet_balance_sat
 
     # Final summary
