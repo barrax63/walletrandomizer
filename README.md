@@ -1,28 +1,30 @@
 ## Wallet Randomizer
 
-This Python script allows you to generate multiple random BIP39 wallets and check their addresses' balances using a local Bitcoin Core instance. It supports multiple BIP types (comma-separated), custom mnemonic word count (12 or 24), various languages, and stores RPC credentials in a `.env` file.
+This Python script allows you to generate multiple random BIP39 wallets, derive addresses for various BIP types, and **check their balances** using a **local Fulcrum Electrum server** in cunjunction with a Bitcoin Core server. You can specify multiple BIP derivation types, set the mnemonic **word count** (12 or 24), choose **different languages**, and optionally log all output to a timestamped file.
 
 ---
 
 ### Features
 
 1. **Random Mnemonic Generation**  
-   - Generates a random BIP39 mnemonic in **12 words** (default) or **24 words** using `--wordcount`.
-   - Supports **various languages** (English, Spanish, French, Italian, Korean, Chinese Simplified, Chinese Traditional) via `--language`.
+   - Generates a random **BIP39 mnemonic** in **12 words** (default) or **24 words** with the `-w/--wordcount` flag.  
+   - Supports **various languages**—English, French, Italian, Spanish, Korean, Chinese Simplified, Chinese Traditional—via `--language`.
 
 2. **Multiple BIP Types**  
-   - Provide one or more derivation types in a comma-separated list, e.g. `bip84,bip49,bip44`, to derive addresses for each type from the same mnemonic.
+   - Specify one or more derivation types in a comma-separated list (e.g. `bip84,bip49,bip44,bip86`), and the script derives addresses for **each** type from the same mnemonic.
 
-3. **Local Bitcoin Core Balances**  
-   - Uses `scantxoutset` to fetch final balances from a local Bitcoin Core node (`bitcoind`).  
-   - Works with **`disablewallet=1`** in `bitcoin.conf` since it does **not** use wallet RPC calls.
+3. **Fulcrum (Electrum) Balances**  
+   - Uses `blockchain.scripthash.get_balance` calls to fetch final balances from your **Fulcrum** instance.  
+   - Maintains a **single** TCP connection for all queries (reducing overhead).
 
-4. **.env for Credentials**  
-   - Credentials (`RPC_USER`, `RPC_PASSWORD`, `RPC_URL`) are loaded from a `.env` file, keeping secrets out of the script.  
-   - Uses `python-dotenv` to load these into environment variables.
+4. **.env for Host/Port**  
+   - The `.env` file stores `FULCRUM_HOST` and `FULCRUM_PORT` so you don’t need to hardcode or pass them as arguments.  
+   - We use [`python-dotenv`](https://pypi.org/project/python-dotenv/) to load these into environment variables.
 
-5. **Logging (Optional)**  
-   - Optionally create a `.log` file in the script directory by using the `-L/--logfile` flag. The file is timestamped (e.g., `2025-02-07_14-30-59.log`) and contains all console output.
+5. **Logging & Verbose Control**  
+   - Optionally create a **timestamped** `.log` file (with `-L/--logfile`).  
+   - Use `-v/--verbose` to show **all** address-level details in the console. Otherwise, the script only prints final wallet balances and summary lines to the console.  
+   - The log file **always** contains the **full** verbose output.
 
 ---
 
@@ -30,16 +32,17 @@ This Python script allows you to generate multiple random BIP39 wallets and chec
 
 1. **Dependencies**  
    - Python 3.7+  
-   - `pip install mnemonic bip_utils requests python-dotenv`
+   - `pip install mnemonic bip_utils base58 python-dotenv`
 
-2. **Bitcoin Core**  
-   - A locally running Bitcoin Core node with `txindex=1` enabled in your `bitcoin.conf`.  
-   - **No wallet** is required (`disablewallet=1` is okay).  
-   - Your `.env` file must contain:
+2. **Fulcrum**  
+   - A **Fulcrum** (Electrum-compatible) server running and **fully synchronized** with the Bitcoin network.  
+   - Typically listens on `127.0.0.1:50001` (TCP).  
+
+3. **.env File**  
+   - Must define:
      ```
-     RPC_USER=<your_rpc_user>
-     RPC_PASSWORD=<your_rpc_password>
-     RPC_URL=http://127.0.0.1:8332
+     FULCRUM_HOST=127.0.0.1
+     FULCRUM_PORT=50001
      ```
 
 ---
@@ -57,12 +60,14 @@ Where:
 
 #### Optional Arguments
 
+- **`-v, --verbose`**  
+  Show **address-level** details and mnemonic in console. Otherwise only per-wallet totals and a final summary.  
 - **`-L, --logfile`**  
-  If used, creates a `.log` file in the script directory with a timestamp.  
+  Creates a `.log` file in the script directory with a timestamp (contains **all** verbose output).  
 - **`-w, --wordcount {12,24}`**  
-  Choose **12** (default) or **24** words for your mnemonic.  
+  Select **12** (default) or **24** words for the BIP39 mnemonic.  
 - **`-l, --language <lang>`**  
-  Select the mnemonic language (`english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`). Defaults to **`english`**.
+  Choose mnemonic language (`english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`). Defaults to **`english`**.
 
 ---
 
@@ -76,93 +81,88 @@ Where:
    ```bash
    python walletrandomizer.py 2 3 bip44 --logfile
    ```
-3. **Generate 2 wallets with multiple BIP types**:
+3. **Generate 2 wallets with multiple BIP types (e.g. BIP84 & BIP44)**:
    ```bash
    python walletrandomizer.py 2 3 bip84,bip44
    ```
-   - Derives 3 addresses each for BIP84 **and** BIP44 (6 total per wallet).
+   This will derive 3 addresses each for BIP84 **and** BIP44 per wallet (6 total addresses per wallet).
 4. **Spanish Mnemonics, 24 words**:
    ```bash
    python walletrandomizer.py 1 2 bip49 -w 24 -l spanish
    ```
-   - 1 wallet, 2 addresses, BIP49, **24-word** Spanish mnemonic.
+   Creates a **24-word** Spanish mnemonic, 1 wallet, 2 addresses each for BIP49.
+
+5. **Verbose Mode**:
+   ```bash
+   python walletrandomizer.py 1 3 bip86 --verbose
+   ```
+   Console shows **detailed** info for each address, plus a final summary. A `.log` is optional.
 
 ---
 
 ### Output
 
-1. **Wallet Count** and **Addresses per Wallet**  
-   Printed to the console (and to the log file if `--logfile` is used).
+1. **Verbose vs. Non-Verbose**  
+   - **Verbose**: Shows the **mnemonic**, each BIP type’s extended keys (XPRV/XPUB), each **derived address**, and **address-level** balances.  
+   - **Non-verbose**: Only prints each wallet’s **“TOTAL BALANCE”** plus the final **GRAND TOTAL**.  
 
-2. **BIP Types**  
-   Shows which derivation paths were used (e.g., `bip84,bip44`).
+2. **Log File**  
+   - If you specify `-L/--logfile`, a timestamped `.log` is created with **all** verbose information, regardless of console verbosity.
 
-3. **Mnemonic**  
-   The BIP39 mnemonic words for each generated wallet.
+3. **BIP Types**  
+   Shows which derivation paths were used (e.g., `bip84,bip86`).
 
-4. **Account XPRV / XPUB**  
-   Master extended private/public keys at the account level, for each BIP type.
+4. **Mnemonic**  
+   The **BIP39** mnemonic (only **printed** in console if `-v` is enabled, but **always** in log file).
 
-5. **Derived Addresses**  
-   A list of addresses for each BIP type.
+5. **Account XPRV / XPUB**  
+   Shown in verbose mode.
 
-6. **Balance Checks**  
-   Uses **`scantxoutset`** to get each address’s final balance from your local node.  
-   - **No** wallet RPC calls used → works with `disablewallet=1`.
+6. **Address Balances**  
+   Fetched from **Fulcrum** using `blockchain.scripthash.get_balance`. If no UTXOs, balance is `0 BTC`.
 
-7. **Per-Wallet Summary**  
-   Displays the combined BTC balance **across all BIP types** for each wallet.
-
-8. **Grand Total**  
-   The total BTC balance across **all** addresses in **all** wallets.
+7. **Wallet & Grand Totals**  
+   Prints each wallet’s final BTC balance (summed across all BIP types) and an overall **GRAND TOTAL**.
 
 ---
 
 ### Script Configuration
 
-- **`.env` Credentials**  
-  - Put your user/pass/URL in `.env`:
+- **`.env` for Fulcrum**  
+  - Define `FULCRUM_HOST` and `FULCRUM_PORT` in `.env`, e.g.:
     ```bash
-    RPC_USER=user
-    RPC_PASSWORD=passwd
-    RPC_URL=http://127.0.0.1:8332
+    FULCRUM_HOST=127.0.0.1
+    FULCRUM_PORT=50001
     ```
-  - The script loads them automatically with `load_dotenv()`.
+  - If your Fulcrum uses SSL, you may need to adapt the script to create an **SSL** socket instead of a plain TCP connection.
 
 - **Word Count & Language**  
-  - Defaults to 12 words and English.  
-  - Use `--wordcount 24` for 24 words.  
-  - Use `--language spanish` (etc.) for other languages.
+  - Defaults to **12** words in **English**.  
+  - `--wordcount 24` for 24 words, `--language french` for French, etc.
 
 ---
 
 ### Troubleshooting
 
 1. **Missing Dependencies**  
-   If you see something like:
+   If you see errors like:
    ```bash
    Error: The 'mnemonic' library is missing.
    ```
-   Install via:
+   install them via:
    ```bash
-   pip install mnemonic bip_utils requests python-dotenv
+   pip install mnemonic bip_utils base58 python-dotenv
    ```
 
-2. **Connection Refused**  
-   Make sure Bitcoin Core is running with:
-   ```ini
-   server=1
-   rpcuser=user
-   rpcpassword=passwd
-   txindex=1
-   ```
-   and that `RPC_URL` matches (`http://127.0.0.1:8332`).
+2. **Fulcrum Connection Errors**  
+   - Ensure Fulcrum is running and **fully synced**.  
+   - Check you used the correct host/port in `.env`.  
 
 3. **0 BTC Balances**  
-   Likely means those addresses never received any transactions.
+   If addresses have never received transactions, the script will show `0 BTC`.
 
 4. **Logging Issues**  
-   If the script can’t write the `.log` file, it prints an error. Check directory permissions.
+   If a `.log` file can’t be created, an error is printed and the script exits.
 
-5. **SSL Errors**  
-   If you previously set `rpcssl=1`, remove it or set up a proxy. Official Bitcoin Core doesn’t support built-in SSL. Use plain HTTP (`127.0.0.1:8332`) or an external stunnel/Nginx.
+5. **Verbose Mode**  
+   If you forget `-v/--verbose`, you’ll only see wallet totals and final summary on console. However, if `-L` is also used, the log file still has full address-level details.
