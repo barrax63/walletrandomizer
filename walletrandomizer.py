@@ -6,6 +6,10 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 
+import hashlib
+from base58 import b58decode
+from bip_utils.bech32 import SegwitBech32Decoder
+
 ###############################################################################
 # LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
 ###############################################################################
@@ -145,59 +149,110 @@ def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
         "addresses": addresses
     }
 
+def address_to_scriptPubKey(address: str) -> bytes:
+    """
+    Convert a BTC base58/bech32 address to its scriptPubKey in bytes.
+    Now includes BIP86 (Taproot) support for witness version=1, 32-byte data.
+    """
+    address = address.strip()
+
+    # 1) Check if bech32 (bc1...)
+    if address.lower().startswith("bc1"):
+        from bip_utils.bech32 import SegwitBech32Decoder
+        hrp = "bc"  # mainnet
+        wit_ver, wit_data = SegwitBech32Decoder.Decode(hrp, address)
+
+        # P2WPKH
+        if wit_ver == 0 and len(wit_data) == 20:
+            # OP_0 <20-byte-hash>
+            return b"\x00\x14" + wit_data
+
+        # P2WSH
+        elif wit_ver == 0 and len(wit_data) == 32:
+            # OP_0 <32-byte-hash>
+            return b"\x00\x20" + wit_data
+
+        # P2TR (Taproot / BIP86)
+        elif wit_ver == 1 and len(wit_data) == 32:
+            # OP_1 <32-byte-pubkey>
+            # 0x51 is OP_1
+            # 0x20 is the pushdata length (32 bytes)
+            return b"\x51\x20" + wit_data
+
+        # Future witness versions/lengths could go here...
+        else:
+            raise ValueError(f"Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}")
+
+    # 2) Otherwise, assume base58 (legacy 1... or 3...)
+    else:
+        from base58 import b58decode
+        raw = b58decode(address)
+        if len(raw) < 5:
+            raise ValueError(f"Invalid base58 decode length for {address}")
+
+        version = raw[0]
+        payload = raw[1:-4]  # last 4 bytes are checksum
+        if version == 0:
+            # P2PKH => OP_DUP OP_HASH160 <20-byte> OP_EQUALVERIFY OP_CHECKSIG
+            return b"\x76\xa9\x14" + payload + b"\x88\xac"
+        elif version == 5:
+            # P2SH => OP_HASH160 <20-byte> OP_EQUAL
+            return b"\xa9\x14" + payload + b"\x87"
+        else:
+            raise ValueError(f"Unsupported base58 version byte: {version}")
+
+def script_to_scripthash(script: bytes) -> str:
+    """Compute Electrum scripthash from scriptPubKey => sha256(script), reversed, hex."""
+    sha = hashlib.sha256(script).digest()
+    return sha[::-1].hex()
+
+def address_to_scripthash(address: str) -> str:
+    """address -> scriptPubKey -> scripthash(hex)."""
+    spk = address_to_scriptPubKey(address)
+    return script_to_scripthash(spk)
+
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY
 ###############################################################################
-def _fetch_data_fulcrum(address, host, port):
-    """
-    Connect to a local Fulcrum server (Electrum protocol) at host:port (TCP, no SSL).
-    Query the 'blockchain.address.get_balance' method for the given address.
+def _fetch_data_fulcrum(address: str, host: str, port: int):
+    import socket, json
 
-    Returns a dict:
-      { "final_balance": int }   # sat
-    or None if there's an error.
-    """
-    import socket
+    # Convert address -> scripthash
+    scripthash_hex = address_to_scripthash(address)
+
     try:
-        # 1) Connect to Fulcrum (TCP)
         with socket.create_connection((host, port), timeout=5) as s:
-            # 2) Build the JSON request
             req = {
-                "id": 0,
-                "method": "blockchain.address.get_balance",
-                "params": [address]
+                "id": 1,
+                "method": "blockchain.scripthash.get_balance",
+                "params": [scripthash_hex]
             }
-            # 3) Send request (terminated by newline)
             s.sendall((json.dumps(req) + "\n").encode("utf-8"))
 
-            # 4) Read one line of JSON response
-            f = s.makefile()  # Turn into a file-like
+            f = s.makefile()
             line = f.readline()
             if not line:
-                log(f"        No response for address: {address}")
+                log(f"No response from Fulcrum for {address}")
                 return None
 
             resp = json.loads(line)
             if "error" in resp:
-                log(f"        Fulcrum error: {resp['error']}")
+                log(f"Fulcrum error: {resp['error']}")
                 return None
 
             result = resp.get("result", {})
-            # 'result' looks like: {"confirmed": <int sat>, "unconfirmed": <int sat>}
             confirmed = result.get("confirmed", 0)
             unconfirmed = result.get("unconfirmed", 0)
             final_balance_sat = confirmed + unconfirmed
-
             return {"final_balance": final_balance_sat}
 
     except socket.timeout:
-        log(f"        Timeout connecting to Fulcrum for {address}")
+        log(f"Timeout connecting to Fulcrum for {address}")
         return None
     except Exception as e:
-        log(f"        Exception fetching data from Fulcrum for {address}: {e}")
+        log(f"Exception fetching data from Fulcrum for {address}: {e}")
         return None
-
 
 def get_address_data(address):
     """
