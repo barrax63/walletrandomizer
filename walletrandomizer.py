@@ -7,7 +7,7 @@ and fetches their final balances using a local Fulcrum Electrum server (via scri
 
 Requires:
 - Python 3.7+
-- mnemonic, bip_utils, requests, python-dotenv, base58
+- mnemonic, bip_utils, python-dotenv, base58
 - A .env file defining FULCRUM_HOST and FULCRUM_PORT
 """
 
@@ -17,16 +17,6 @@ import os
 import json
 import hashlib
 from datetime import datetime
-from dotenv import load_dotenv
-from base58 import b58decode
-from bip_utils.bech32 import SegwitBech32Decoder
-
-###############################################################################
-# LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
-###############################################################################
-load_dotenv()  # Load .env variables for Fulcrum connection
-FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")  # fallback
-FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))  # fallback
 
 ###############################################################################
 # LOGGING SETUP
@@ -49,6 +39,8 @@ def log(*args, sep=" ", end="\n"):
 ###############################################################################
 _mnemonic_import_checked = False
 _bip_utils_import_checked = False
+_base58_import_checked = False
+_dotenv_import_checked = False
 
 def _check_mnemonic_import():
     """
@@ -58,7 +50,7 @@ def _check_mnemonic_import():
     if _mnemonic_import_checked:
         return
     try:
-        import mnemonic  # Just to test the import presence
+        import mnemonic
     except ImportError:
         msg = (
             "Error: The 'mnemonic' library is missing.\n"
@@ -87,11 +79,60 @@ def _check_bip_utils_import():
         log(msg)
         sys.exit(1)
     _bip_utils_import_checked = True
+    
+def _check_base58_import():
+    """
+    Checks if 'base58' is installed.
+    """
+    global _base58_import_checked
+    if _base58_import_checked:
+        return
+    try:
+        import base58
+    except ImportError:
+        msg = (
+            "Error: The 'base58' library is missing.\n"
+            "Please install it by running:\n"
+            "    pip install base58\n"
+        )
+        log(msg)
+        sys.exit(1)
+    _base58_import_checked = True
+
+def _check_dotenv_import():
+    """
+    Checks if 'python-dotenv' is installed.
+    """
+    global _dotenv_import_checked
+    if _dotenv_import_checked:
+        return
+    try:
+        import dotenv
+    except ImportError:
+        msg = (
+            "Error: The 'python-dotenv' library is missing.\n"
+            "Please install it by running:\n"
+            "    pip install python-dotenv\n"
+        )
+        log(msg)
+        sys.exit(1)
+    _dotenv_import_checked = True
+    
+###############################################################################
+# LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
+###############################################################################
+_check_dotenv_import()
+
+from dotenv import load_dotenv
+load_dotenv()  # Load .env variables for Fulcrum connection
+
+FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")  # fallback
+FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))  # fallback
 
 ###############################################################################
 # MNEMONIC / ADDRESS GENERATION
 ###############################################################################
-def generate_random_mnemonic(word_count=12, language="english"):
+def generate_random_mnemonic(word_count, language):
     """
     Generates a random BIP39 mnemonic in the specified language.
     word_count can be 12 or 24.
@@ -107,7 +148,7 @@ def generate_random_mnemonic(word_count=12, language="english"):
     strength = 128 if word_count == 12 else 256
     return mnemo.generate(strength=strength)
 
-def derive_addresses(bip_type, seed_phrase, max_addrs=20, language="english"):
+def derive_addresses(bip_type, seed_phrase, max_addrs, language):
     """
     Derives addresses from a given BIP39 seed phrase using bip44, bip49, bip84, or bip86.
     Returns a dict with:
@@ -180,6 +221,12 @@ def address_to_scriptPubKey(address: str) -> bytes:
       - Bech32 v0 (bc1q... => P2WPKH/P2WSH)
       - Bech32 v1 (bc1p... => P2TR / Taproot, BIP86)
     """
+    _check_base58_import()
+    _check_bip_utils_import()
+    
+    from base58 import b58decode
+    from bip_utils.bech32 import SegwitBech32Decoder
+    
     address = address.strip()
 
     # Check bech32 (bc1...)
