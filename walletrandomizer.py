@@ -15,6 +15,7 @@ import sys
 import argparse
 import os
 import json
+import socket
 import hashlib
 from datetime import datetime
 
@@ -281,56 +282,72 @@ def address_to_scripthash(address: str) -> str:
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY
 ###############################################################################
-def _fetch_data_fulcrum(address: str, host: str, port: int):
+class FulcrumClient:
     """
-    Connect to a local Fulcrum server via TCP, no SSL.
-    Query 'blockchain.scripthash.get_balance' for the address's scripthash.
-    Returns: {"final_balance": int} in satoshis, or None on error.
+    A small class for a single persistent TCP connection to Fulcrum.
+    We can query multiple addresses within one session.
     """
-    import socket
+    def __init__(self, host: str, port: int, timeout=5):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.req_id = 0
+        self._connect()
 
-    # Convert address -> scripthash
-    scripthash_hex = address_to_scripthash(address)
+    def _connect(self):
+        """Create a single socket and file-like object for line-based JSON."""
+        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        self.f = self.sock.makefile("r")
 
-    try:
-        with socket.create_connection((host, port), timeout=5) as s:
-            req = {
-                "id": 1,
-                "method": "blockchain.scripthash.get_balance",
-                "params": [scripthash_hex]
-            }
-            s.sendall((json.dumps(req) + "\n").encode("utf-8"))
+    def close(self):
+        """Close the TCP connection and file stream."""
+        try:
+            self.f.close()
+        except:
+            pass
+        try:
+            self.sock.close()
+        except:
+            pass
 
-            f = s.makefile()
-            line = f.readline()
-            if not line:
-                log(f"No response from Fulcrum for {address}")
-                return None
+    def get_balance(self, address: str) -> dict | None:
+        """
+        Query 'blockchain.scripthash.get_balance' for address.
+        Return {"final_balance": int sat} or None on error.
+        """
+        self.req_id += 1
+        scripthash_hex = address_to_scripthash(address)
 
-            resp = json.loads(line)
-            if "error" in resp:
-                log(f"Fulcrum error: {resp['error']}")
-                return None
+        req_obj = {
+            "id": self.req_id,
+            "method": "blockchain.scripthash.get_balance",
+            "params": [scripthash_hex]
+        }
+        # Send line
+        line_out = json.dumps(req_obj) + "\n"
+        self.sock.sendall(line_out.encode("utf-8"))
 
-            result = resp.get("result", {})
-            confirmed = result.get("confirmed", 0)
-            unconfirmed = result.get("unconfirmed", 0)
-            final_balance_sat = confirmed + unconfirmed
-            return {"final_balance": final_balance_sat}
+        # Read one line
+        line_in = self.f.readline()
+        if not line_in:
+            log(f"No response from Fulcrum for {address}")
+            return None
 
-    except socket.timeout:
-        log(f"Timeout connecting to Fulcrum for {address}")
-        return None
-    except Exception as e:
-        log(f"Exception fetching data from Fulcrum for {address}: {e}")
-        return None
+        try:
+            resp = json.loads(line_in)
+        except json.JSONDecodeError as e:
+            log(f"JSON parse error for {address}: {e}")
+            return None
 
-def get_address_data(address):
-    """
-    High-level wrapper to get final balance from Fulcrum's Electrum protocol.
-    Returns dict {"final_balance": int} or None if error.
-    """
-    return _fetch_data_fulcrum(address, FULCRUM_HOST, FULCRUM_PORT)
+        if "error" in resp:
+            log(f"Fulcrum error for {address}: {resp['error']}")
+            return None
+
+        result = resp.get("result", {})
+        confirmed = result.get("confirmed", 0)
+        unconfirmed = result.get("unconfirmed", 0)
+        final_bal = confirmed + unconfirmed
+        return {"final_balance": final_bal}
 
 ###############################################################################
 # MAIN SCRIPT
@@ -430,6 +447,9 @@ def main():
     log(f"Mnemonic Language:    {language}")
     log(f"Word count:           {word_count}")
     log(f"\nTotal addresses:      {total_addrs}")
+    
+    # Create a single FulcrumClient instance
+    client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
 
     # Main loop: generate wallets, derive addresses, get balances
     for w_i in range(num_wallets):
@@ -462,7 +482,7 @@ def main():
             # 4) Query each address from Fulcrum
             for addr in addresses:
                 log(f"      {addr}")
-                data = get_address_data(addr)
+                data = client.get_balance(addr)
                 if data is not None:
                     final_balance_sat = data.get("final_balance", 0)
                     wallet_balance_sat += final_balance_sat
@@ -483,6 +503,9 @@ def main():
     log("\n\n=== SUMMARY ===")
     log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS/ADDRESSES:\n\n {grand_total_btc} BTC\n")
 
+    # Close the connection once done
+    client.close()
+    
     # Close log file if opened
     if _log_file is not None:
         _log_file.close()
