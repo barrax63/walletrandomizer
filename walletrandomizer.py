@@ -17,6 +17,7 @@ import hashlib
 import time
 import logging
 from datetime import datetime
+from tqdm import tqdm
 
 ###############################################################################
 # GLOBAL STOP FLAG FOR CTRL+C
@@ -37,13 +38,6 @@ def handle_sigint(signum, frame):
 ###############################################################################
 logger = logging.getLogger("wallet_randomizer_fulcrum")
 logger.setLevel(logging.INFO)
-
-# Create a console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-
-# Attach the console handler to the logger
-logger.addHandler(console_handler)
 
 ###############################################################################
 # UNIFIED IMPORT CHECK
@@ -483,7 +477,6 @@ def main():
     # Configure logging level based on -v/--verbose argument
     if args.verbose:
         logger.setLevel(logging.DEBUG)
-        console_handler.setLevel(logging.DEBUG)
 
     # Possibly create a .log file
     if args.logfile:
@@ -548,10 +541,10 @@ def main():
         sys.exit(1)
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
-    for w_i in range(num_wallets):
+    for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets"):
         # Check if user pressed CTRL+C
         if _stop_requested:
-            logger.info("\n\nCTRL+C Detected! => Stopping early.")
+            logger.warning("\n\nCTRL+C Detected! => Stopping early.")
             break
         
         logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
