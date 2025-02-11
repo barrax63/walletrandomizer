@@ -541,7 +541,7 @@ def main():
         sys.exit(1)
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
-    for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets"):
+    for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False):
         # Check if user pressed CTRL+C
         if _stop_requested:
             logger.warning("\n\nCTRL+C Detected! => Stopping early.")
