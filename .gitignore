@@ -221,5 +221,6 @@ $RECYCLE.BIN/
 
 # Other
 wallet_search_results_*
+*.json
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,visualstudiocode,python

@@ -10,6 +10,7 @@ import sys
 import argparse
 import os
 import json
+import uuid
 import socket
 import hashlib
 import time
@@ -262,6 +263,72 @@ def address_to_scripthash(address: str) -> str:
     spk = address_to_scriptPubKey(address)
     return script_to_scripthash(spk)
 
+def export_wallet_json(wallet_index: int, wallet_obj: dict, mnemonic: str, language: str, word_count: int) -> None:
+    """
+    Exports the wallet data to a JSON file if the wallet has a balance greater than 0.
+    
+    The JSON structure is as follows:
+    
+        {
+          "mnemonic": "<mnemonic>",
+          "language": "<language>",
+          "word_count": "<word_count>",
+          "wallet": {
+            "bip_types": [
+              {
+                "type": "<bip_type>",
+                "xpriv": "<xpriv>",
+                "xpub": "<xpub>",
+                "addresses": [
+                  { "address": "<address>", "balance": "<balance>" },
+                  ...
+                ]
+              },
+              ...
+            ]
+          }
+        }
+    
+    Args:
+        wallet_index (int): The wallet number (e.g. 1, 2, ...).
+        wallet_obj (dict): Dictionary containing the wallet data. It should have a key "bip_types",
+                           which is a list of dictionaries. Each dictionary has an "addresses" key,
+                           which is a list of objects with "address" and "balance".
+        mnemonic (str): The BIP39 mnemonic used for this wallet.
+        language (str): The mnemonic language.
+        word_count (int): The number of words in the mnemonic (12 or 24).
+    """
+    # Calculate the wallet's total balance by summing all address balances.
+    total_balance = 0.0
+    for bip in wallet_obj.get("bip_types", []):
+        for addr_entry in bip.get("addresses", []):
+            try:
+                total_balance += float(addr_entry.get("balance", "0.0"))
+            except ValueError:
+                continue
+
+    # Only export if balance > 0
+    if total_balance <= 0:
+        return
+
+    # Build the JSON structure
+    wallet_json = {
+        "mnemonic": mnemonic,
+        "language": language,
+        "word_count": str(word_count),
+        "wallet": wallet_obj
+    }
+    
+    # Generate a random filename using a UUID
+    filename = f"{uuid.uuid4()}.json"
+
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(wallet_json, f, indent=2)
+        log(f"Exported wallet {wallet_index} to JSON file: {filename}", always=True)
+    except Exception as e:
+        log(f"Error exporting wallet {wallet_index} to JSON: {e}", always=True)
+
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY - SINGLE TCP SESSION
@@ -476,7 +543,11 @@ def main():
     log(f"\nTotal addresses:      {total_addrs}", always=True)
 
     # Create a single FulcrumClient session for all address queries
-    client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+    try:
+        client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+    except Exception as e:
+        log(f"\nFailed to connect to Fulcrum: {e}", always=True)
+        sys.exit(1)
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
     for w_i in range(num_wallets):
@@ -488,6 +559,9 @@ def main():
         log(f"\n  Generated mnemonic: {mnemonic}", always=_VERBOSE)
 
         wallet_balance_sat = 0
+        
+        # Prepare a wallet object for JSON export.
+        wallet_obj = {"bip_types": []}
 
         for bip_type in bip_types_list:
             # If verbose, show bip_type details
@@ -502,6 +576,14 @@ def main():
             account_xprv = derivation_info["account_xprv"]
             account_xpub = derivation_info["account_xpub"]
             addresses = derivation_info["addresses"]
+            
+            # Build a bip type entry for JSON export.
+            bip_entry = {
+                "type": bip_type,
+                "extended_private_key": account_xprv,
+                "extended_public_key": account_xpub,
+                "addresses": []
+            }
 
             # Log details only if verbose
             log(f"    Account Extended Private Key: {account_xprv}", always=_VERBOSE)
@@ -520,12 +602,24 @@ def main():
                     log(f"        ADDRESS BALANCE: {final_balance_btc} BTC", always=_VERBOSE)
                 else:
                     log(f"        Could not fetch balance for address: {addr}", always=_VERBOSE)
+                    
+                # Append address info to the bip_entry regardless of balance.
+                bip_entry["addresses"].append({
+                    "address": addr,
+                    "balance": str(final_balance_btc) if data is not None else "0.0"
+                })
+                
+            # Append the current bip type entry to the wallet object.
+            wallet_obj["bip_types"].append(bip_entry)
 
         # Print wallet total balance to console always
         wallet_balance_btc = wallet_balance_sat / 1e8
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC", always=True)
 
         grand_total_sat += wallet_balance_sat
+        
+        #Export this wallet as JSON if its balance > 0.
+        export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
 
     # Compute total time elapsed
     elapsed_s = time.time() - start_time
