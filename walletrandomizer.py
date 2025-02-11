@@ -40,6 +40,12 @@ def handle_sigint(signum, frame):
 logger = logging.getLogger("wallet_randomizer_fulcrum")
 logger.setLevel(logging.INFO)
 
+# Create a console handler for the terminal output
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)
+console_handler.setFormatter(logging.Formatter("%(message)s"))
+logger.addHandler(console_handler)
+
 ###############################################################################
 # UNIFIED IMPORT CHECK
 ###############################################################################
