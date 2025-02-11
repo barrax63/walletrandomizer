@@ -16,6 +16,7 @@ import socket
 import hashlib
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from tqdm import tqdm
 
@@ -485,9 +486,15 @@ def main():
         log_filename = f"{timestamp_str}.log"
         log_path = os.path.join(script_dir, log_filename)
         try:
-            fh = logging.FileHandler(log_path, encoding="utf-8")
-            fh.setFormatter(logging.Formatter("%(message)s"))
-            logger.addHandler(fh)
+            # Rotating log files after 250 MB
+            rotating_fh = RotatingFileHandler(
+                log_path,
+                maxBytes=250*1024*1024,
+                backupCount=40,
+                encoding="utf-8"
+            )
+            rotating_fh.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(rotating_fh)
         except Exception as e:
             logger.error(f"Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
