@@ -7,6 +7,7 @@ and fetches their final balances using a local Fulcrum Electrum server (via scri
 """
 
 import sys
+import signal
 import argparse
 import os
 import json
@@ -20,6 +21,20 @@ from datetime import datetime
 # GLOBAL VERBOSE FLAG
 ###############################################################################
 _VERBOSE = False  # Will be set via command-line argument -v/--verbose
+
+###############################################################################
+# GLOBAL STOP FLAG FOR CTRL+C
+###############################################################################
+_stop_requested = False
+
+def handle_sigint(signum, frame):
+    """
+    Signal handler for CTRL+C (SIGINT).
+    Sets a global flag so we can finish the current wallet
+    and then break out gracefully with a partial summary.
+    """
+    global _stop_requested
+    _stop_requested = True
 
 ###############################################################################
 # LOGGING SETUP
@@ -95,6 +110,12 @@ load_dotenv()  # Load .env variables for Fulcrum connection
 
 FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
+
+###############################################################################
+# SIGNAL HANDLING
+###############################################################################
+# Register SIGINT handler so pressing CTRL+C triggers handle_sigint.
+signal.signal(signal.SIGINT, handle_sigint)
 
 ###############################################################################
 # MNEMONIC / ADDRESS GENERATION
@@ -529,6 +550,7 @@ def main():
 
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
     grand_total_sat = 0
+    wallets_processed = 0
     
     # Start timing
     start_time = time.time()
@@ -551,6 +573,11 @@ def main():
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
     for w_i in range(num_wallets):
+        # Check if user pressed CTRL+C
+        if _stop_requested:
+            log("\n\nCTRL+C Detected! => Stopping early.", always=True)
+            break
+        
         # If verbose, show detailed heading, else skip
         log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===", always=_VERBOSE)
 
@@ -617,6 +644,7 @@ def main():
         log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC", always=True)
 
         grand_total_sat += wallet_balance_sat
+        wallets_processed += 1
         
         #Export this wallet as JSON if its balance > 0.
         export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
@@ -630,7 +658,8 @@ def main():
     # After all wallets, print summary lines (always)
     grand_total_btc = grand_total_sat / 1e8
     log("\n\n=== SUMMARY ===", always=True)
-    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS/ADDRESSES:\n\n {grand_total_btc} BTC\n", always=True)
+    log(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED", always=True)
+    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n", always=True)
     log(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n", always=True)
 
     # Close connection
