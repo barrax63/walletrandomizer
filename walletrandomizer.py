@@ -15,12 +15,8 @@ import uuid
 import socket
 import hashlib
 import time
+import logging
 from datetime import datetime
-
-###############################################################################
-# GLOBAL VERBOSE FLAG
-###############################################################################
-_VERBOSE = False  # Will be set via command-line argument -v/--verbose
 
 ###############################################################################
 # GLOBAL STOP FLAG FOR CTRL+C
@@ -37,38 +33,17 @@ def handle_sigint(signum, frame):
     _stop_requested = True
 
 ###############################################################################
-# LOGGING SETUP
+# BUILT-IN LOGGER SETUP
 ###############################################################################
-_log_file = None
+logger = logging.getLogger("wallet_randomizer_fulcrum")
+logger.setLevel(logging.INFO)
 
-def log(*args, sep=" ", end="\n", always=False):
-    """
-    Custom logging function that conditionally prints to console
-    based on _VERBOSE and always writes to the log file if open.
+# Create a console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
 
-    Args:
-        *args: Message parts to be joined by 'sep'.
-        sep (str, optional): Separator for message parts. Defaults to " ".
-        end (str, optional): Line ending. Defaults to "\n".
-        always (bool, optional):
-            - If True, always print to console regardless of _VERBOSE.
-            - If False, only print if _VERBOSE is True.
-
-    The function always writes output to the log file (if one is open),
-    but only prints to the console if `always=True` or `_VERBOSE` is True.
-    """
-    msg = sep.join(str(a) for a in args)
-
-    # Always write the message to the log file if present
-    if _log_file is not None:
-        _log_file.write(msg + end)
-        _log_file.flush()
-
-    # Conditionally print to console:
-    #   if always=True, print no matter what
-    #   else only print if _VERBOSE is True
-    if always or _VERBOSE:
-        print(msg, end=end)
+# Attach the console handler to the logger
+logger.addHandler(console_handler)
 
 ###############################################################################
 # UNIFIED IMPORT CHECK
@@ -95,8 +70,7 @@ def _check_dependencies():
                 f"Please install it by running:\n\n"
                 f"    pip install {install_name}\n"
             )
-            # Use always=True to ensure user sees this error on console
-            log(msg, always=True)
+            logger.error(msg)
             sys.exit(1)
 
 # Perform the checks at load time
@@ -346,9 +320,9 @@ def export_wallet_json(wallet_index: int, wallet_obj: dict, mnemonic: str, langu
     try:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(wallet_json, f, indent=2)
-        log(f"Exported wallet {wallet_index} to JSON file: {filename}", always=True)
+        logger.info(f"Exported wallet {wallet_index} to JSON file: {filename}")
     except Exception as e:
-        log(f"Error exporting wallet {wallet_index} to JSON: {e}", always=True)
+        logger.warning(f"Error exporting wallet {wallet_index} to JSON: {e}")
 
 
 ###############################################################################
@@ -424,17 +398,17 @@ class FulcrumClient:
         # Read exactly one line of JSON response
         line_in = self.f.readline()
         if not line_in:
-            log(f"No response from Fulcrum for {address}")
+            logger.warning(f"No response from Fulcrum for {address}")
             return None
 
         try:
             resp = json.loads(line_in)
         except json.JSONDecodeError as e:
-            log(f"JSON parse error for {address}: {e}")
+            logger.warning(f"JSON parse error for {address}: {e}")
             return None
 
         if "error" in resp:
-            log(f"Fulcrum error for {address}: {resp['error']}")
+            logger.warning(f"Fulcrum error for {address}: {resp['error']}")
             return None
 
         result = resp.get("result", {})
@@ -457,7 +431,7 @@ def main():
       3) Possibly create a log file (-L/--logfile)
       4) Create a single FulcrumClient session
       5) For each wallet, generate a mnemonic, derive addresses, fetch balances
-         (printing minimal or verbose info to console depending on _VERBOSE)
+         (printing minimal or verbose info to console depending on verbosity)
       6) Print final summary lines
     """
     parser = argparse.ArgumentParser(
@@ -481,7 +455,7 @@ def main():
     parser.add_argument(
         "-v", "--verbose",
         action="store_true",
-        help="If given, print verbose details to console. Otherwise only final balances."
+        help="If given, print verbose details (debug) to console. Otherwise only info-level messages."
     )
     parser.add_argument(
         "-L", "--logfile",
@@ -506,41 +480,43 @@ def main():
 
     args = parser.parse_args()
 
-    # Capture whether the user wants verbose console output
-    global _VERBOSE
-    _VERBOSE = args.verbose
+    # Configure logging level based on -v/--verbose argument
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+        console_handler.setLevel(logging.DEBUG)
 
     # Possibly create a .log file
-    global _log_file
     if args.logfile:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         log_filename = f"{timestamp_str}.log"
         log_path = os.path.join(script_dir, log_filename)
         try:
-            _log_file = open(log_path, "w", encoding="utf-8")
+            fh = logging.FileHandler(log_path, encoding="utf-8")
+            fh.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(fh)
         except Exception as e:
-            log(f"Failed to open log file '{log_path}' for writing: {e}", always=True)
+            logger.error(f"Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
 
     # Validate numeric inputs
     if args.num_wallets < 1:
-        log("Error: num_wallets must be >= 1.", always=True)
+        logger.error("Error: num_wallets must be >= 1.")
         sys.exit(1)
     if args.num_addresses < 1:
-        log("Error: num_addresses must be >= 1.", always=True)
+        logger.error("Error: num_addresses must be >= 1.")
         sys.exit(1)
 
     # Parse and validate BIP types
     bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
     allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
     if not bip_types_list:
-        log("Error: No valid BIP types specified.", always=True)
+        logger.error("Error: No valid BIP types specified.")
         sys.exit(1)
 
     for bip in bip_types_list:
         if bip not in allowed_bips:
-            log(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.", always=True)
+            logger.error(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
             sys.exit(1)
 
     num_wallets = args.num_wallets
@@ -555,35 +531,33 @@ def main():
     # Start timing
     start_time = time.time()
 
-    # Print initial info (always shown on console)
-    log("\n===== WALLET RANDOMIZER =====\n", always=True)
-    log(f"Number of Wallets:    {num_wallets}", always=True)
-    log(f"Addresses per Wallet: {num_addresses}", always=True)
-    log(f"BIP Type(s):          {', '.join(bip_types_list)}", always=True)
-    log(f"Mnemonic Language:    {language}", always=True)
-    log(f"Word count:           {word_count}", always=True)
-    log(f"\nTotal addresses:      {total_addrs}", always=True)
+    # Print initial info
+    logger.info("\n===== WALLET RANDOMIZER =====\n")
+    logger.info(f"Number of Wallets:    {num_wallets}")
+    logger.info(f"Addresses per Wallet: {num_addresses}")
+    logger.info(f"BIP Type(s):          {', '.join(bip_types_list)}")
+    logger.info(f"Mnemonic Language:    {language}")
+    logger.info(f"Word count:           {word_count}")
+    logger.info(f"\nTotal addresses:      {total_addrs}")
 
     # Create a single FulcrumClient session for all address queries
     try:
         client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
     except Exception as e:
-        log(f"\nFailed to connect to Fulcrum: {e}", always=True)
+        logger.error(f"\nFailed to connect to Fulcrum: {e}")
         sys.exit(1)
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
     for w_i in range(num_wallets):
         # Check if user pressed CTRL+C
         if _stop_requested:
-            log("\n\nCTRL+C Detected! => Stopping early.", always=True)
+            logger.info("\n\nCTRL+C Detected! => Stopping early.")
             break
         
-        # If verbose, show detailed heading, else skip
-        log(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===", always=_VERBOSE)
+        logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
         mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
-        # If verbose, show the generated mnemonic in console
-        log(f"\n  Generated mnemonic: {mnemonic}", always=_VERBOSE)
+        logger.debug(f"\n  Generated mnemonic: {mnemonic}")
 
         wallet_balance_sat = 0
         
@@ -591,8 +565,7 @@ def main():
         wallet_obj = {"bip_types": []}
 
         for bip_type in bip_types_list:
-            # If verbose, show bip_type details
-            log(f"\n  == Deriving addresses for {bip_type.upper()} ==\n", always=_VERBOSE)
+            logger.debug(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
 
             derivation_info = derive_addresses(
                 bip_type,
@@ -612,23 +585,21 @@ def main():
                 "addresses": []
             }
 
-            # Log details only if verbose
-            log(f"    Account Extended Private Key: {account_xprv}", always=_VERBOSE)
-            log(f"    Account Extended Public Key:  {account_xpub}", always=_VERBOSE)
-            log(f"\n    Derived {len(addresses)} addresses:", always=_VERBOSE)
+            logger.debug(f"    Account Extended Private Key: {account_xprv}")
+            logger.debug(f"    Account Extended Public Key:  {account_xpub}")
+            logger.debug(f"\n    Derived {len(addresses)} addresses:")
 
             for addr in addresses:
-                log(f"      {addr}", always=_VERBOSE)
+                logger.debug(f"      {addr}")
                 data = client.get_balance(addr)
                 if data is not None:
                     final_balance_sat = data["final_balance"]
                     wallet_balance_sat += final_balance_sat
                     final_balance_btc = final_balance_sat / 1e8
 
-                    # If verbose, log each address's balance
-                    log(f"        ADDRESS BALANCE: {final_balance_btc} BTC", always=_VERBOSE)
+                    logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
                 else:
-                    log(f"        Could not fetch balance for address: {addr}", always=_VERBOSE)
+                    logger.debug(f"        Could not fetch balance for address: {addr}")
                     
                 # Append address info to the bip_entry regardless of balance.
                 bip_entry["addresses"].append({
@@ -639,14 +610,14 @@ def main():
             # Append the current bip type entry to the wallet object.
             wallet_obj["bip_types"].append(bip_entry)
 
-        # Print wallet total balance to console always
+        # Print wallet total balance to console
         wallet_balance_btc = wallet_balance_sat / 1e8
-        log(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC", always=True)
+        logger.info(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
         grand_total_sat += wallet_balance_sat
         wallets_processed += 1
         
-        #Export this wallet as JSON if its balance > 0.
+        # Export this wallet as JSON if its balance > 0.
         export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
 
     # Compute total time elapsed
@@ -655,19 +626,15 @@ def main():
     minutes = int((elapsed_s % 3600) // 60)
     seconds = elapsed_s % 60
     
-    # After all wallets, print summary lines (always)
+    # After all wallets, print summary lines
     grand_total_btc = grand_total_sat / 1e8
-    log("\n\n=== SUMMARY ===", always=True)
-    log(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED", always=True)
-    log(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n", always=True)
-    log(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n", always=True)
+    logger.info("\n\n=== SUMMARY ===")
+    logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
+    logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
+    logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
 
     # Close connection
     client.close()
-
-    # Close log file if opened
-    if _log_file is not None:
-        _log_file.close()
 
 
 if __name__ == "__main__":
