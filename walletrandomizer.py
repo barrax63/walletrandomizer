@@ -480,8 +480,33 @@ def main():
     )
 
     args = parser.parse_args()
+    
+    # Enforce that --verbose can only be used in conjunction with --logfile
+    if args.verbose and not args.logfile:
+        logger.error("Error: The -v/--verbose option requires -L/--logfile")
+        sys.exit(1)
 
-    # Configure logging level based on -v/--verbose argument
+    # Validate numeric inputs
+    if args.num_wallets < 1:
+        logger.error("Error: num_wallets must be >= 1.")
+        sys.exit(1)
+    if args.num_addresses < 1:
+        logger.error("Error: num_addresses must be >= 1.")
+        sys.exit(1)
+
+    # Parse and validate BIP types
+    bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
+    allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
+    if not bip_types_list:
+        logger.error("Error: No valid BIP types specified.")
+        sys.exit(1)
+
+    for bip in bip_types_list:
+        if bip not in allowed_bips:
+            logger.error(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
+            sys.exit(1)
+            
+        # Configure logging level based on -v/--verbose argument
     if args.verbose:
         logger.setLevel(logging.DEBUG)
 
@@ -503,26 +528,6 @@ def main():
             logger.addHandler(rotating_fh)
         except Exception as e:
             logger.error(f"Failed to open log file '{log_path}' for writing: {e}")
-            sys.exit(1)
-
-    # Validate numeric inputs
-    if args.num_wallets < 1:
-        logger.error("Error: num_wallets must be >= 1.")
-        sys.exit(1)
-    if args.num_addresses < 1:
-        logger.error("Error: num_addresses must be >= 1.")
-        sys.exit(1)
-
-    # Parse and validate BIP types
-    bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
-    allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
-    if not bip_types_list:
-        logger.error("Error: No valid BIP types specified.")
-        sys.exit(1)
-
-    for bip in bip_types_list:
-        if bip not in allowed_bips:
-            logger.error(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
             sys.exit(1)
 
     num_wallets = args.num_wallets
