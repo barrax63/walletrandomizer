@@ -20,7 +20,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
-from tqdm import tqdm
 
 ###############################################################################
 # GLOBAL STOP FLAG FOR CTRL+C
@@ -604,6 +603,8 @@ def main():
     except Exception as e:
         logger.error(f"\nFailed to connect to Fulcrum: {e}")
         sys.exit(1)
+        
+    from tqdm import tqdm
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
     for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False):
