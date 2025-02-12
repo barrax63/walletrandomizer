@@ -119,7 +119,6 @@ def generate_random_mnemonic(word_count: int, language: str) -> str:
     mnemo = Mnemonic(language)
     return mnemo.generate(strength=strength)
 
-
 def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: str) -> dict:
     """
     Derives addresses from a given BIP39 seed phrase using bip44, bip49, bip84, or bip86.
@@ -181,7 +180,6 @@ def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: 
         "addresses": addresses
     }
 
-
 ###############################################################################
 # SCRIPT/HASH UTILS (for scripthash-based queries)
 ###############################################################################
@@ -234,7 +232,6 @@ def address_to_scriptPubKey(address: str) -> bytes:
         else:
             raise ValueError(f"Unsupported base58 version byte: {version}")
 
-
 def script_to_scripthash(script: bytes) -> str:
     """
     scripthash = sha256(scriptPubKey)[::-1].hex()
@@ -247,7 +244,6 @@ def script_to_scripthash(script: bytes) -> str:
     """
     sha = hashlib.sha256(script).digest()
     return sha[::-1].hex()
-
 
 def address_to_scripthash(address: str) -> str:
     """
@@ -327,7 +323,6 @@ def export_wallet_json(wallet_index: int, wallet_obj: dict, mnemonic: str, langu
         logger.info(f"Exported wallet {wallet_index} to JSON file: {filename}")
     except Exception as e:
         logger.warning(f"Error exporting wallet {wallet_index} to JSON: {e}")
-
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY - SINGLE TCP SESSION
@@ -440,7 +435,6 @@ def _worker_get_balance(address: str) -> tuple[str, dict | None]:
         _thread_local.client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
 
     return address, _thread_local.client.get_balance(address)
-
 
 def parallel_fetch_balances(addresses: list[str], max_workers) -> dict[str, dict | None]:
     """
@@ -701,7 +695,6 @@ def main():
 
     # Close connection
     client.close()
-
 
 if __name__ == "__main__":
     main()
