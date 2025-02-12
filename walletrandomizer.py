@@ -111,7 +111,7 @@ def generate_random_mnemonic(word_count: int, language: str) -> str:
     from mnemonic import Mnemonic
 
     if word_count not in (12, 24):
-        raise ValueError("Word count must be 12 or 24.")
+        raise ValueError("ERROR: Word count must be 12 or 24.")
 
     # For 12 words, strength=128 bits; for 24 words, strength=256 bits
     strength = 128 if word_count == 12 else 256
@@ -144,7 +144,7 @@ def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: 
 
     mnemo = Mnemonic(language)
     if not mnemo.check(seed_phrase):
-        raise ValueError(f"Invalid BIP39 seed phrase for language '{language}'.")
+        raise ValueError(f"ERROR: Invalid BIP39 seed phrase for language '{language}'.")
 
     # Convert mnemonic to seed bytes
     seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
@@ -159,7 +159,7 @@ def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: 
     elif bip_type_lower == "bip86":
         bip_obj = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN)
     else:
-        raise ValueError(f"Unsupported BIP type: {bip_type}")
+        raise ValueError(f"ERROR: Unsupported BIP type: {bip_type}")
 
     # Derive the account node (m/purpose'/coin'/account')
     account_node = bip_obj.Purpose().Coin().Account(0)
@@ -212,13 +212,13 @@ def address_to_scriptPubKey(address: str) -> bytes:
             return b"\x51\x20" + wit_data
         else:
             raise ValueError(
-                f"Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}"
+                f"ERROR: Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}"
             )
     else:
         # Legacy (base58) addresses: 1... => version=0, 3... => version=5
         raw = b58decode(address)
         if len(raw) < 5:
-            raise ValueError(f"Invalid base58 decode length for {address}")
+            raise ValueError(f"ERROR: Invalid base58 decode length for {address}")
 
         version = raw[0]
         payload = raw[1:-4]
@@ -229,7 +229,7 @@ def address_to_scriptPubKey(address: str) -> bytes:
             # P2SH => OP_HASH160 <20-byte> OP_EQUAL
             return b"\xa9\x14" + payload + b"\x87"
         else:
-            raise ValueError(f"Unsupported base58 version byte: {version}")
+            raise ValueError(f"ERROR: Unsupported base58 version byte: {version}")
 
 def script_to_scripthash(script: bytes) -> str:
     """
