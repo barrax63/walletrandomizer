@@ -596,18 +596,11 @@ def main():
     logger.info(f"Word count:           {word_count}")
     logger.info(f"Worker Threads:       {max_workers}")
     logger.info(f"\nTotal addresses:      {total_addrs}")
-
-    # Create a single FulcrumClient session for all address queries
-    try:
-        client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
-    except Exception as e:
-        logger.error(f"\nFailed to connect to Fulcrum: {e}")
-        sys.exit(1)
         
     from tqdm import tqdm
 
     # MAIN LOOP: generate wallets, derive addresses, get balances
-    for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False):
+    for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False, mininterval=0.5):
         # Check if user pressed CTRL+C
         if _stop_requested:
             logger.warning("\n\nCTRL+C Detected! => Stopping early.")
@@ -693,9 +686,6 @@ def main():
     logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
     logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
     logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
-
-    # Close connection
-    client.close()
 
 if __name__ == "__main__":
     main()
