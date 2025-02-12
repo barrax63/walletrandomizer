@@ -43,7 +43,7 @@ logger.setLevel(logging.INFO)
 
 # Create a console handler for the terminal output
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.WARNING)
+console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(console_handler)
 
@@ -69,7 +69,7 @@ def _check_dependencies():
             __import__(mod)
         except ImportError:
             msg = (
-                f"ERROR: The '{mod}' library is missing.\n"
+                f"\nERROR: The '{mod}' library is missing.\n"
                 f"Please install it by running:\n\n"
                 f"    pip install {install_name}\n"
             )
@@ -111,7 +111,7 @@ def generate_random_mnemonic(word_count: int, language: str) -> str:
     from mnemonic import Mnemonic
 
     if word_count not in (12, 24):
-        raise ValueError("ERROR: Word count must be 12 or 24.")
+        raise ValueError("\nERROR: Word count must be 12 or 24.")
 
     # For 12 words, strength=128 bits; for 24 words, strength=256 bits
     strength = 128 if word_count == 12 else 256
@@ -144,7 +144,7 @@ def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: 
 
     mnemo = Mnemonic(language)
     if not mnemo.check(seed_phrase):
-        raise ValueError(f"ERROR: Invalid BIP39 seed phrase for language '{language}'.")
+        raise ValueError(f"\nERROR: Invalid BIP39 seed phrase for language '{language}'.")
 
     # Convert mnemonic to seed bytes
     seed_bytes = Bip39SeedGenerator(seed_phrase).Generate()
@@ -159,7 +159,7 @@ def derive_addresses(bip_type: str, seed_phrase: str, max_addrs: int, language: 
     elif bip_type_lower == "bip86":
         bip_obj = Bip86.FromSeed(seed_bytes, Bip86Coins.BITCOIN)
     else:
-        raise ValueError(f"ERROR: Unsupported BIP type: {bip_type}")
+        raise ValueError(f"\nERROR: Unsupported BIP type: {bip_type}")
 
     # Derive the account node (m/purpose'/coin'/account')
     account_node = bip_obj.Purpose().Coin().Account(0)
@@ -212,13 +212,13 @@ def address_to_scriptPubKey(address: str) -> bytes:
             return b"\x51\x20" + wit_data
         else:
             raise ValueError(
-                f"ERROR: Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}"
+                f"\nERROR: Unsupported bech32 witnessVer={wit_ver}, len={len(wit_data)} for address: {address}"
             )
     else:
         # Legacy (base58) addresses: 1... => version=0, 3... => version=5
         raw = b58decode(address)
         if len(raw) < 5:
-            raise ValueError(f"ERROR: Invalid base58 decode length for {address}")
+            raise ValueError(f"\nERROR: Invalid base58 decode length for {address}")
 
         version = raw[0]
         payload = raw[1:-4]
@@ -229,7 +229,7 @@ def address_to_scriptPubKey(address: str) -> bytes:
             # P2SH => OP_HASH160 <20-byte> OP_EQUAL
             return b"\xa9\x14" + payload + b"\x87"
         else:
-            raise ValueError(f"ERROR: Unsupported base58 version byte: {version}")
+            raise ValueError(f"\nERROR: Unsupported base58 version byte: {version}")
 
 def script_to_scripthash(script: bytes) -> str:
     """
@@ -319,9 +319,9 @@ def export_wallet_json(wallet_index: int, wallet_obj: dict, mnemonic: str, langu
     try:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(wallet_json, f, indent=2)
-        logger.info(f"Exported wallet {wallet_index} to JSON file: {filename}")
+        logger.info(f"\nExported wallet {wallet_index} to JSON file: {filename}")
     except Exception as e:
-        logger.warning(f"WARNING: Exporting wallet {wallet_index} to JSON failed: {e}")
+        logger.warning(f"\nWARNING: Exporting wallet {wallet_index} to JSON failed: {e}")
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY - SINGLE TCP SESSION
@@ -351,24 +351,29 @@ class FulcrumClient:
         self.timeout = timeout
         self.req_id = 0
         self._connect()
-
+                    
     def _connect(self):
         """Create the TCP socket and file-like reader for line-based JSON responses."""
-        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        # Turn the raw socket into a file-like object for easier line-based reading
-        self.f = self.sock.makefile("r")
+        try:
+            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            
+            # Turn the raw socket into a file-like object for easier line-based reading
+            self.f = self.sock.makefile("r")
+        except ConnectionRefusedError as e:
+            logger.error(f"\nERROR: Failed to connect to Fulcrum: {e}")
+            sys.exit(1)
 
     def close(self):
         """Close the TCP connection and file stream gracefully."""
         try:
             self.f.close()
         except Exception as e:
-            logger.warning(f"WARNING: Failed to close file stream: {e}")
+            logger.warning(f"\nWARNING: Failed to close file stream: {e}")
 
         try:
             self.sock.close()
         except Exception as e:
-            logger.warning(f"WARNING: Failed to close socket: {e}")
+            logger.warning(f"\nWARNING: Failed to close socket: {e}")
 
     def get_balance(self, address: str) -> dict | None:
         """
@@ -397,17 +402,17 @@ class FulcrumClient:
         # Read exactly one line of JSON response
         line_in = self.f.readline()
         if not line_in:
-            logger.warning(f"WARNING: No response from Fulcrum for {address}")
+            logger.warning(f"\nWARNING: No response from Fulcrum for {address}")
             return None
 
         try:
             resp = json.loads(line_in)
         except json.JSONDecodeError as e:
-            logger.warning(f"WARNING: JSON parsing failed for {address}: {e}")
+            logger.warning(f"\nWARNING: JSON parsing failed for {address}: {e}")
             return None
 
         if "error" in resp:
-            logger.warning(f"WARNING: Fulcrum error for {address}: {resp['error']}")
+            logger.warning(f"\nWARNING: Fulcrum error for {address}: {resp['error']}")
             return None
 
         result = resp.get("result", {})
@@ -443,23 +448,21 @@ def _worker_get_balance(address: str) -> tuple[str, dict | None]:
 
     return address, _thread_local.client.get_balance(address)
 
-def parallel_fetch_balances(addresses: list[str], max_workers) -> dict[str, dict | None]:
+def parallel_fetch_balances(executor: ThreadPoolExecutor, addresses: list[str]) -> dict[str, dict | None]:
     """
-    Fetch balances for many addresses concurrently using a ThreadPoolExecutor.
+    Fetch balances for many addresses concurrently using the given ThreadPoolExecutor.
     
     Args:
       addresses (list[str]): List of addresses to query.
-      max_workers (int): Number of threads (default 1).
       
     Returns:
       dict[str, dict|None]: A mapping from address -> balance result (or None if error).
     """
     results = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_map = {executor.submit(_worker_get_balance, addr): addr for addr in addresses}
-        for fut in as_completed(future_map):
-            addr, data = fut.result()
-            results[addr] = data
+    future_map = {executor.submit(_worker_get_balance, addr): addr for addr in addresses}
+    for fut in as_completed(future_map):
+        addr, data = fut.result()
+        results[addr] = data
     return results
 
 def close_all_threadlocal_clients():
@@ -539,30 +542,30 @@ def main():
     
     # Enforce that --verbose can only be used in conjunction with --logfile
     if args.verbose and not args.logfile:
-        logger.error("ERROR: The -v/--verbose option requires -L/--logfile")
+        logger.error("\nERROR: The -v/--verbose option requires -L/--logfile")
         sys.exit(1)
 
     # Validate numeric inputs
     if args.num_wallets < 1:
-        logger.error("ERROR: num_wallets must be >= 1.")
+        logger.error("\nERROR: num_wallets must be >= 1.")
         sys.exit(1)
     if args.num_addresses < 1:
-        logger.error("ERROR: num_addresses must be >= 1.")
+        logger.error("\nERROR: num_addresses must be >= 1.")
         sys.exit(1)
     if args.threads < 1:
-        logger.error("ERROR: threads must be >= 1.")
+        logger.error("\nERROR: threads must be >= 1.")
         sys.exit(1)
 
     # Parse and validate BIP types
     bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
     allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
     if not bip_types_list:
-        logger.error("ERROR: No valid BIP types specified.")
+        logger.error("\nERROR: No valid BIP types specified.")
         sys.exit(1)
 
     for bip in bip_types_list:
         if bip not in allowed_bips:
-            logger.error(f"ERROR: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
+            logger.error(f"\nERROR: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
             sys.exit(1)
             
         # Configure logging level based on -v/--verbose argument
@@ -586,7 +589,7 @@ def main():
             rotating_fh.setFormatter(logging.Formatter("%(message)s"))
             logger.addHandler(rotating_fh)
         except Exception as e:
-            logger.error(f"ERROR: Failed to open log file '{log_path}' for writing: {e}")
+            logger.error(f"\nERROR: Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
 
     num_wallets = args.num_wallets
@@ -610,84 +613,87 @@ def main():
     logger.info(f"Mnemonic Language:    {language}")
     logger.info(f"Word count:           {word_count}")
     logger.info(f"Worker Threads:       {max_workers}")
-    logger.info(f"\nTotal addresses:      {total_addrs}")
+    logger.info(f"\nTotal addresses:      {total_addrs}\n")
         
     from tqdm import tqdm
+    
+    # Create one ThreadPoolExecutor for the entire run
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
-    # MAIN LOOP: generate wallets, derive addresses, get balances
-    for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False, mininterval=0.5):
-        # Check if user pressed CTRL+C
-        if _stop_requested:
-            logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
-            break
-        
-        logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
-
-        mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
-        logger.debug(f"\n  Generated mnemonic: {mnemonic}")
-
-        wallet_balance_sat = 0
-        
-        # Prepare a wallet object for JSON export.
-        wallet_obj = {"bip_types": []}
-
-        for bip_type in bip_types_list:
-            logger.debug(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
-
-            derivation_info = derive_addresses(
-                bip_type,
-                mnemonic,
-                max_addrs=num_addresses,
-                language=language
-            )
-            account_xprv = derivation_info["account_xprv"]
-            account_xpub = derivation_info["account_xpub"]
-            addresses = derivation_info["addresses"]
+        # MAIN LOOP: generate wallets, derive addresses, get balances
+        for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets", leave=False, mininterval=0.5):
+            # Check if user pressed CTRL+C
+            if _stop_requested:
+                logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
+                break
             
-            # Build a bip type entry for JSON export.
-            bip_entry = {
-                "type": bip_type,
-                "extended_private_key": account_xprv,
-                "extended_public_key": account_xpub,
-                "addresses": []
-            }
+            logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
-            logger.debug(f"    Account Extended Private Key: {account_xprv}")
-            logger.debug(f"    Account Extended Public Key:  {account_xpub}")
-            logger.debug(f"\n    Derived {len(addresses)} addresses:")
+            mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
+            logger.debug(f"\n  Generated mnemonic: {mnemonic}")
 
-            # Fetch all balances in parallel using max_workers
-            results_map = parallel_fetch_balances(addresses, max_workers=max_workers)
-            for addr in addresses:
-                logger.debug(f"      {addr}")
-                data = results_map[addr]
-                if data is not None:
-                    final_balance_sat = data["final_balance"]
-                    wallet_balance_sat += final_balance_sat
-                    final_balance_btc = final_balance_sat / 1e8
+            wallet_balance_sat = 0
 
-                    logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
-                else:
-                    logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
-                    
-                # Append address info to the bip_entry regardless of balance.
-                bip_entry["addresses"].append({
-                    "address": addr,
-                    "balance": str(final_balance_btc) if data is not None else "0.0"
-                })
-                
-            # Append the current bip type entry to the wallet object.
-            wallet_obj["bip_types"].append(bip_entry)
+            # Prepare a wallet object for JSON export.
+            wallet_obj = {"bip_types": []}
 
-        # Print wallet total balance to console
-        wallet_balance_btc = wallet_balance_sat / 1e8
-        logger.info(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
+            for bip_type in bip_types_list:
+                logger.debug(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
 
-        grand_total_sat += wallet_balance_sat
-        wallets_processed += 1
-        
-        # Export this wallet as JSON if its balance > 0.
-        export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
+                derivation_info = derive_addresses(
+                    bip_type,
+                    mnemonic,
+                    max_addrs=num_addresses,
+                    language=language
+                )
+                account_xprv = derivation_info["account_xprv"]
+                account_xpub = derivation_info["account_xpub"]
+                addresses = derivation_info["addresses"]
+
+                # Build a bip type entry for JSON export.
+                bip_entry = {
+                    "type": bip_type,
+                    "extended_private_key": account_xprv,
+                    "extended_public_key": account_xpub,
+                    "addresses": []
+                }
+
+                logger.debug(f"    Account Extended Private Key: {account_xprv}")
+                logger.debug(f"    Account Extended Public Key:  {account_xpub}")
+                logger.debug(f"\n    Derived {len(addresses)} addresses:")
+
+                # Pass the shared executor to parallel_fetch_balances
+                results_map = parallel_fetch_balances(executor, addresses)
+                for addr in addresses:
+                    logger.debug(f"      {addr}")
+                    data = results_map[addr]
+                    if data is not None:
+                        final_balance_sat = data["final_balance"]
+                        wallet_balance_sat += final_balance_sat
+                        final_balance_btc = final_balance_sat / 1e8
+
+                        logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
+                    else:
+                        logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
+
+                    # Append address info to the bip_entry regardless of balance.
+                    bip_entry["addresses"].append({
+                        "address": addr,
+                        "balance": str(final_balance_btc) if data is not None else "0.0"
+                    })
+
+                # Append the current bip type entry to the wallet object.
+                wallet_obj["bip_types"].append(bip_entry)
+
+            # Print wallet total balance to console
+            wallet_balance_btc = wallet_balance_sat / 1e8
+            logger.debug(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
+
+            grand_total_sat += wallet_balance_sat
+            wallets_processed += 1
+
+            # Export this wallet as JSON if its balance > 0.
+            export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
 
     # Compute total time elapsed
     elapsed_s = time.time() - start_time
