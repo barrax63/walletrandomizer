@@ -420,6 +420,10 @@ class FulcrumClient:
 ###############################################################################
 _thread_local = threading.local()
 
+# Keep track of all thread-local clients so we can close them at the end
+_all_clients = set()
+_clients_lock = threading.Lock()
+
 def _worker_get_balance(address: str) -> tuple[str, dict | None]:
     """
     Worker function for each address. Each thread creates a FulcrumClient
@@ -431,7 +435,10 @@ def _worker_get_balance(address: str) -> tuple[str, dict | None]:
     """
     if not hasattr(_thread_local, "client"):
         # Each worker will have its own FulcrumClient
-        _thread_local.client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+        new_client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+        _thread_local.client = new_client
+        with _clients_lock:
+            _all_clients.add(new_client)
 
     return address, _thread_local.client.get_balance(address)
 
@@ -453,6 +460,13 @@ def parallel_fetch_balances(addresses: list[str], max_workers) -> dict[str, dict
             addr, data = fut.result()
             results[addr] = data
     return results
+
+def close_all_threadlocal_clients():
+    """Close all FulcrumClients that were created in worker threads."""
+    with _clients_lock:
+        for client in _all_clients:
+            client.close()
+        _all_clients.clear()
 
 ###############################################################################
 # MAIN SCRIPT
@@ -686,6 +700,9 @@ def main():
     logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
     logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
     logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
+
+    # Finally, close all thread-local clients
+    close_all_threadlocal_clients()
 
 if __name__ == "__main__":
     main()
