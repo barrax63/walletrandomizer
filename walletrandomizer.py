@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wallet_randomizer_fulcrum.py
+walletrandomizer.py
 
 Generates random BIP39 wallets, derives addresses for specified BIP types (bip44/bip49/bip84/bip86),
 and fetches their final balances using a local Fulcrum Electrum server (via scripthash).
@@ -16,6 +16,8 @@ import socket
 import hashlib
 import time
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from tqdm import tqdm
@@ -37,7 +39,7 @@ def handle_sigint(signum, frame):
 ###############################################################################
 # BUILT-IN LOGGER SETUP
 ###############################################################################
-logger = logging.getLogger("wallet_randomizer_fulcrum")
+logger = logging.getLogger("walletrandomizer")
 logger.setLevel(logging.INFO)
 
 # Create a console handler for the terminal output
@@ -51,7 +53,7 @@ logger.addHandler(console_handler)
 ###############################################################################
 def _check_dependencies():
     """
-    Checks that all required libraries (mnemonic, bip_utils, base58, python-dotenv) are installed.
+    Checks that all required libraries (mnemonic, bip_utils, base58, python-dotenv, tqdm) are installed.
     Exits with an error message if any are missing.
 
     This is done once at startup to ensure all required modules are present.
@@ -60,7 +62,8 @@ def _check_dependencies():
         ("mnemonic", "mnemonic"),
         ("bip_utils", "bip_utils"),
         ("base58", "base58"),
-        ("dotenv", "python-dotenv")
+        ("dotenv", "python-dotenv"),
+        ("tqdm", "tqdm")
     ]
     for mod, install_name in dependencies:
         try:
@@ -418,6 +421,45 @@ class FulcrumClient:
         final_bal = confirmed + unconfirmed
         return {"final_balance": final_bal}
 
+###############################################################################
+# CONCURRENCY UTILS
+###############################################################################
+_thread_local = threading.local()
+
+def _worker_get_balance(address: str) -> tuple[str, dict | None]:
+    """
+    Worker function for each address. Each thread creates a FulcrumClient
+    on first use (lazy init) and reuses it for all subsequent addresses
+    handled by that thread.
+    
+    Returns:
+      (address, balance_data)
+    """
+    if not hasattr(_thread_local, "client"):
+        # Each worker will have its own FulcrumClient
+        _thread_local.client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+
+    return address, _thread_local.client.get_balance(address)
+
+
+def parallel_fetch_balances(addresses: list[str], max_workers) -> dict[str, dict | None]:
+    """
+    Fetch balances for many addresses concurrently using a ThreadPoolExecutor.
+    
+    Args:
+      addresses (list[str]): List of addresses to query.
+      max_workers (int): Number of threads (default 1).
+      
+    Returns:
+      dict[str, dict|None]: A mapping from address -> balance result (or None if error).
+    """
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {executor.submit(_worker_get_balance, addr): addr for addr in addresses}
+        for fut in as_completed(future_map):
+            addr, data = fut.result()
+            results[addr] = data
+    return results
 
 ###############################################################################
 # MAIN SCRIPT
@@ -478,6 +520,12 @@ def main():
                  "chinese_simplified", "chinese_traditional"],
         help="BIP39 mnemonic language (default: english)."
     )
+    parser.add_argument(
+        "-t", "--threads",
+        type=int,
+        default=1,
+        help="Number of threads to use for parallel Fulcrum requests (default: 1)."
+    )
 
     args = parser.parse_args()
     
@@ -492,6 +540,9 @@ def main():
         sys.exit(1)
     if args.num_addresses < 1:
         logger.error("Error: num_addresses must be >= 1.")
+        sys.exit(1)
+    if args.threads < 1:
+        logger.error("Error: threads must be >= 1.")
         sys.exit(1)
 
     # Parse and validate BIP types
@@ -534,6 +585,7 @@ def main():
     num_addresses = args.num_addresses
     language = args.language
     word_count = args.wordcount
+    max_workers = args.threads
 
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
     grand_total_sat = 0
@@ -549,6 +601,7 @@ def main():
     logger.info(f"BIP Type(s):          {', '.join(bip_types_list)}")
     logger.info(f"Mnemonic Language:    {language}")
     logger.info(f"Word count:           {word_count}")
+    logger.info(f"Worker Threads:       {max_workers}")
     logger.info(f"\nTotal addresses:      {total_addrs}")
 
     # Create a single FulcrumClient session for all address queries
@@ -600,9 +653,11 @@ def main():
             logger.debug(f"    Account Extended Public Key:  {account_xpub}")
             logger.debug(f"\n    Derived {len(addresses)} addresses:")
 
+            # Fetch all balances in parallel using max_workers
+            results_map = parallel_fetch_balances(addresses, max_workers=max_workers)
             for addr in addresses:
                 logger.debug(f"      {addr}")
-                data = client.get_balance(addr)
+                data = results_map[addr]
                 if data is not None:
                     final_balance_sat = data["final_balance"]
                     wallet_balance_sat += final_balance_sat
