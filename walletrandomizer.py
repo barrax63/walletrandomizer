@@ -362,12 +362,13 @@ class FulcrumClient:
         """Close the TCP connection and file stream gracefully."""
         try:
             self.f.close()
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Error closing file stream: {e}")
+
         try:
             self.sock.close()
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Error closing socket: {e}")
 
     def get_balance(self, address: str) -> dict | None:
         """
