@@ -69,7 +69,7 @@ def _check_dependencies():
             __import__(mod)
         except ImportError:
             msg = (
-                f"Error: The '{mod}' library is missing.\n"
+                f"ERROR: The '{mod}' library is missing.\n"
                 f"Please install it by running:\n\n"
                 f"    pip install {install_name}\n"
             )
@@ -321,7 +321,7 @@ def export_wallet_json(wallet_index: int, wallet_obj: dict, mnemonic: str, langu
             json.dump(wallet_json, f, indent=2)
         logger.info(f"Exported wallet {wallet_index} to JSON file: {filename}")
     except Exception as e:
-        logger.warning(f"Error exporting wallet {wallet_index} to JSON: {e}")
+        logger.warning(f"WARNING: Exporting wallet {wallet_index} to JSON failed: {e}")
 
 ###############################################################################
 # FULCRUM ELECTRUM PROTOCOL QUERY - SINGLE TCP SESSION
@@ -363,12 +363,12 @@ class FulcrumClient:
         try:
             self.f.close()
         except Exception as e:
-            logger.warning(f"Error closing file stream: {e}")
+            logger.warning(f"WARNING: Failed to close file stream: {e}")
 
         try:
             self.sock.close()
         except Exception as e:
-            logger.warning(f"Error closing socket: {e}")
+            logger.warning(f"WARNING: Failed to close socket: {e}")
 
     def get_balance(self, address: str) -> dict | None:
         """
@@ -397,17 +397,17 @@ class FulcrumClient:
         # Read exactly one line of JSON response
         line_in = self.f.readline()
         if not line_in:
-            logger.warning(f"No response from Fulcrum for {address}")
+            logger.warning(f"WARNING: No response from Fulcrum for {address}")
             return None
 
         try:
             resp = json.loads(line_in)
         except json.JSONDecodeError as e:
-            logger.warning(f"JSON parse error for {address}: {e}")
+            logger.warning(f"WARNING: JSON parsing failed for {address}: {e}")
             return None
 
         if "error" in resp:
-            logger.warning(f"Fulcrum error for {address}: {resp['error']}")
+            logger.warning(f"WARNING: Fulcrum error for {address}: {resp['error']}")
             return None
 
         result = resp.get("result", {})
@@ -539,30 +539,30 @@ def main():
     
     # Enforce that --verbose can only be used in conjunction with --logfile
     if args.verbose and not args.logfile:
-        logger.error("Error: The -v/--verbose option requires -L/--logfile")
+        logger.error("ERROR: The -v/--verbose option requires -L/--logfile")
         sys.exit(1)
 
     # Validate numeric inputs
     if args.num_wallets < 1:
-        logger.error("Error: num_wallets must be >= 1.")
+        logger.error("ERROR: num_wallets must be >= 1.")
         sys.exit(1)
     if args.num_addresses < 1:
-        logger.error("Error: num_addresses must be >= 1.")
+        logger.error("ERROR: num_addresses must be >= 1.")
         sys.exit(1)
     if args.threads < 1:
-        logger.error("Error: threads must be >= 1.")
+        logger.error("ERROR: threads must be >= 1.")
         sys.exit(1)
 
     # Parse and validate BIP types
     bip_types_list = [x.strip().lower() for x in args.bip_types.split(",") if x.strip()]
     allowed_bips = {"bip44", "bip49", "bip84", "bip86"}
     if not bip_types_list:
-        logger.error("Error: No valid BIP types specified.")
+        logger.error("ERROR: No valid BIP types specified.")
         sys.exit(1)
 
     for bip in bip_types_list:
         if bip not in allowed_bips:
-            logger.error(f"Error: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
+            logger.error(f"ERROR: Invalid BIP type '{bip}'. Must be one of: {', '.join(allowed_bips)}.")
             sys.exit(1)
             
         # Configure logging level based on -v/--verbose argument
@@ -586,7 +586,7 @@ def main():
             rotating_fh.setFormatter(logging.Formatter("%(message)s"))
             logger.addHandler(rotating_fh)
         except Exception as e:
-            logger.error(f"Failed to open log file '{log_path}' for writing: {e}")
+            logger.error(f"ERROR: Failed to open log file '{log_path}' for writing: {e}")
             sys.exit(1)
 
     num_wallets = args.num_wallets
@@ -618,7 +618,7 @@ def main():
     for w_i in tqdm(range(num_wallets), desc="Generating random wallets", unit="wallets", leave=False, mininterval=0.5):
         # Check if user pressed CTRL+C
         if _stop_requested:
-            logger.warning("\n\nCTRL+C Detected! => Stopping early.")
+            logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
             break
         
         logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
@@ -668,7 +668,7 @@ def main():
 
                     logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
                 else:
-                    logger.debug(f"        Could not fetch balance for address: {addr}")
+                    logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
                     
                 # Append address info to the bip_entry regardless of balance.
                 bip_entry["addresses"].append({
