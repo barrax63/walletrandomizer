@@ -17,7 +17,7 @@ import hashlib
 import time
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
@@ -471,6 +471,10 @@ def close_all_threadlocal_clients():
         for client in _all_clients:
             client.close()
         _all_clients.clear()
+        
+def _derive_in_process(bip_type: str, mnemonic: str, num_addresses: int, language: str) -> tuple[str, dict]:
+    derivation_info = derive_addresses(bip_type, mnemonic, num_addresses, language)
+    return bip_type, derivation_info
 
 ###############################################################################
 # MAIN SCRIPT
@@ -531,12 +535,6 @@ def main():
                  "chinese_simplified", "chinese_traditional"],
         help="BIP39 mnemonic language (default: english)."
     )
-    parser.add_argument(
-        "-t", "--threads",
-        type=int,
-        default=1,
-        help="Number of threads to use for parallel Fulcrum requests (default: 1)."
-    )
 
     args = parser.parse_args()
     
@@ -551,9 +549,6 @@ def main():
         sys.exit(1)
     if args.num_addresses < 1:
         logger.error("\nERROR: num_addresses must be >= 1.")
-        sys.exit(1)
-    if args.threads < 1:
-        logger.error("\nERROR: threads must be >= 1.")
         sys.exit(1)
 
     # Parse and validate BIP types
@@ -596,7 +591,6 @@ def main():
     num_addresses = args.num_addresses
     language = args.language
     word_count = args.wordcount
-    max_workers = args.threads
 
     total_addrs = num_wallets * num_addresses * len(bip_types_list)
     grand_total_sat = 0
@@ -612,23 +606,27 @@ def main():
     logger.info(f"BIP Type(s):          {', '.join(bip_types_list)}")
     logger.info(f"Mnemonic Language:    {language}")
     logger.info(f"Word count:           {word_count}")
-    logger.info(f"Worker Threads:       {max_workers}")
     logger.info(f"\nTotal addresses:      {total_addrs}\n")
         
     from tqdm import tqdm
     
-    # Create one ThreadPoolExecutor for the entire run
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    # Suppose we set "max_procs = len(bip_types_list)" so if user picks 2 BIP types => 2 processes, etc.
+    max_procs = len(bip_types_list)
+    
+    # We create one process per BIP type
+    # The 'ppex' is for CPU-bound derivations, 'executor' is for Fulcrum fetches.
+    with ProcessPoolExecutor(max_workers=max_procs) as ppex, ThreadPoolExecutor(max_workers=num_addresses) as executor:
 
-        # MAIN LOOP: generate wallets, derive addresses, get balances
+        # MAIN LOOP: generate wallets, derive addresses (via ProcessPoolExecutor), get balances
         for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets", leave=False, mininterval=0.5):
             # Check if user pressed CTRL+C
             if _stop_requested:
                 logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
                 break
-            
+
             logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
+            # Generate a new mnemonic for this wallet
             mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
             logger.debug(f"\n  Generated mnemonic: {mnemonic}")
 
@@ -637,15 +635,25 @@ def main():
             # Prepare a wallet object for JSON export.
             wallet_obj = {"bip_types": []}
 
+            fut_map = {}
             for bip_type in bip_types_list:
-                logger.debug(f"\n  == Deriving addresses for {bip_type.upper()} ==\n")
+                logger.debug(f"\n  => Submitting BIP derivation for: {bip_type.upper()}")
+                fut = ppex.submit(_derive_in_process, bip_type, mnemonic, num_addresses, language)
+                fut_map[fut] = bip_type
+            # Collect results from the parallel processes
+            bip_results = []
+            for fut in as_completed(fut_map):
+                bip_type = fut_map[fut]
+                try:
+                    bip_type2, derivation_info = fut.result()
+                except Exception as e:
+                    logger.warning(f"\nWARNING: Derivation failed for {bip_type}: {e}")
+                    continue
+                bip_results.append((bip_type2, derivation_info))
 
-                derivation_info = derive_addresses(
-                    bip_type,
-                    mnemonic,
-                    max_addrs=num_addresses,
-                    language=language
-                )
+            # Now we have a list of (bip_type, derivation_info) for each BIP type
+            # We'll do the balance fetch (parallel_fetch_balances) for each
+            for bip_type, derivation_info in bip_results:
                 account_xprv = derivation_info["account_xprv"]
                 account_xpub = derivation_info["account_xpub"]
                 addresses = derivation_info["addresses"]
@@ -692,15 +700,15 @@ def main():
             grand_total_sat += wallet_balance_sat
             wallets_processed += 1
 
-            # Export this wallet as JSON if its balance > 0.
+            # Export this wallet as JSON if its balance > 0
             export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
 
-    # Compute total time elapsed
+    # After loop, print summary
     elapsed_s = time.time() - start_time
     hours = int(elapsed_s // 3600)
     minutes = int((elapsed_s % 3600) // 60)
     seconds = elapsed_s % 60
-    
+
     # After all wallets, print summary lines
     grand_total_btc = grand_total_sat / 1e8
     logger.info("\n\n=== SUMMARY ===")
@@ -708,7 +716,7 @@ def main():
     logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
     logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
 
-    # Finally, close all thread-local clients
+    # Close all thread-local clients for Fulcrum
     close_all_threadlocal_clients()
 
 if __name__ == "__main__":
