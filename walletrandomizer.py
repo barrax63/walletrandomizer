@@ -613,111 +613,119 @@ def main():
     # Suppose we set "max_procs = len(bip_types_list)" so if user picks 2 BIP types => 2 processes, etc.
     max_procs = len(bip_types_list)
     
-    # We create one process per BIP type
-    # The 'ppex' is for CPU-bound derivations, 'executor' is for Fulcrum fetches.
-    with ProcessPoolExecutor(max_workers=max_procs) as ppex, ThreadPoolExecutor(max_workers=num_addresses) as executor:
-
-        # MAIN LOOP: generate wallets, derive addresses (via ProcessPoolExecutor), get balances
-        for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets", leave=False, mininterval=0.5):
-            # Check if user pressed CTRL+C
-            if _stop_requested:
-                logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
-                break
-
-            logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
-
-            # Generate a new mnemonic for this wallet
-            mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
-            logger.debug(f"\n  Generated mnemonic: {mnemonic}")
-
-            wallet_balance_sat = 0
-
-            # Prepare a wallet object for JSON export.
-            wallet_obj = {"bip_types": []}
-
-            fut_map = {}
-            for bip_type in bip_types_list:
-                logger.debug(f"\n  => Submitting BIP derivation for: {bip_type.upper()}")
-                fut = ppex.submit(_derive_in_process, bip_type, mnemonic, num_addresses, language)
-                fut_map[fut] = bip_type
-            # Collect results from the parallel processes
-            bip_results = []
-            for fut in as_completed(fut_map):
-                bip_type = fut_map[fut]
-                try:
-                    bip_type2, derivation_info = fut.result()
-                except Exception as e:
-                    logger.warning(f"\nWARNING: Derivation failed for {bip_type}: {e}")
-                    continue
-                bip_results.append((bip_type2, derivation_info))
-
-            # Now we have a list of (bip_type, derivation_info) for each BIP type
-            # We'll do the balance fetch (parallel_fetch_balances) for each
-            for bip_type, derivation_info in bip_results:
-                account_xprv = derivation_info["account_xprv"]
-                account_xpub = derivation_info["account_xpub"]
-                addresses = derivation_info["addresses"]
-
-                # Build a bip type entry for JSON export.
-                bip_entry = {
-                    "type": bip_type,
-                    "extended_private_key": account_xprv,
-                    "extended_public_key": account_xpub,
-                    "addresses": []
-                }
-
-                logger.debug(f"    Account Extended Private Key: {account_xprv}")
-                logger.debug(f"    Account Extended Public Key:  {account_xpub}")
-                logger.debug(f"\n    Derived {len(addresses)} addresses:")
-
-                # Pass the shared executor to parallel_fetch_balances
-                results_map = parallel_fetch_balances(executor, addresses)
-                for addr in addresses:
-                    logger.debug(f"      {addr}")
-                    data = results_map[addr]
-                    if data is not None:
-                        final_balance_sat = data["final_balance"]
-                        wallet_balance_sat += final_balance_sat
-                        final_balance_btc = final_balance_sat / 1e8
-
-                        logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
-                    else:
-                        logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
-
-                    # Append address info to the bip_entry regardless of balance.
-                    bip_entry["addresses"].append({
-                        "address": addr,
-                        "balance": str(final_balance_btc) if data is not None else "0.0"
-                    })
-
-                # Append the current bip type entry to the wallet object.
-                wallet_obj["bip_types"].append(bip_entry)
-
-            # Print wallet total balance to console
-            wallet_balance_btc = wallet_balance_sat / 1e8
-            logger.debug(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
-
-            grand_total_sat += wallet_balance_sat
-            wallets_processed += 1
-
-            # Export this wallet as JSON if its balance > 0
-            export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
-
-    # After loop, print summary
-    elapsed_s = time.time() - start_time
-    hours = int(elapsed_s // 3600)
-    minutes = int((elapsed_s % 3600) // 60)
-    seconds = elapsed_s % 60
-
-    # After all wallets, print summary lines
-    grand_total_btc = grand_total_sat / 1e8
-    logger.info("\n\n=== SUMMARY ===")
-    logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
-    logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
-    logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
-
-    # Close all thread-local clients for Fulcrum
-    close_all_threadlocal_clients()
-
+	try:
+		# We create one process per BIP type
+		# The 'ppex' is for CPU-bound derivations, 'executor' is for Fulcrum fetches.
+		with ProcessPoolExecutor(max_workers=max_procs) as ppex, ThreadPoolExecutor(max_workers=num_addresses) as executor:
+	
+			# MAIN LOOP: generate wallets, derive addresses (via ProcessPoolExecutor), get balances
+			for w_i in tqdm(range(num_wallets), desc="Generating wallets", unit="wallets", leave=False, mininterval=0.5):
+				# Check if user pressed CTRL+C
+				if _stop_requested:
+					logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
+					break
+	
+				logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
+	
+				# Generate a new mnemonic for this wallet
+				mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
+				logger.debug(f"\n  Generated mnemonic: {mnemonic}")
+	
+				wallet_balance_sat = 0
+	
+				# Prepare a wallet object for JSON export.
+				wallet_obj = {"bip_types": []}
+	
+				fut_map = {}
+				for bip_type in bip_types_list:
+					logger.debug(f"\n  => Submitting BIP derivation for: {bip_type.upper()}")
+					fut = ppex.submit(_derive_in_process, bip_type, mnemonic, num_addresses, language)
+					fut_map[fut] = bip_type
+				# Collect results from the parallel processes
+				bip_results = []
+				for fut in as_completed(fut_map):
+					bip_type = fut_map[fut]
+					try:
+						bip_type2, derivation_info = fut.result()
+					except Exception as e:
+						logger.warning(f"\nWARNING: Derivation failed for {bip_type}: {e}")
+						continue
+					bip_results.append((bip_type2, derivation_info))
+	
+				# Now we have a list of (bip_type, derivation_info) for each BIP type
+				# We'll do the balance fetch (parallel_fetch_balances) for each
+				for bip_type, derivation_info in bip_results:
+					account_xprv = derivation_info["account_xprv"]
+					account_xpub = derivation_info["account_xpub"]
+					addresses = derivation_info["addresses"]
+	
+					# Build a bip type entry for JSON export.
+					bip_entry = {
+						"type": bip_type,
+						"extended_private_key": account_xprv,
+						"extended_public_key": account_xpub,
+						"addresses": []
+					}
+	
+					logger.debug(f"    Account Extended Private Key: {account_xprv}")
+					logger.debug(f"    Account Extended Public Key:  {account_xpub}")
+					logger.debug(f"\n    Derived {len(addresses)} addresses:")
+	
+					# Pass the shared executor to parallel_fetch_balances
+					results_map = parallel_fetch_balances(executor, addresses)
+					for addr in addresses:
+						logger.debug(f"      {addr}")
+						data = results_map[addr]
+						if data is not None:
+							final_balance_sat = data["final_balance"]
+							wallet_balance_sat += final_balance_sat
+							final_balance_btc = final_balance_sat / 1e8
+	
+							logger.debug(f"        ADDRESS BALANCE: {final_balance_btc} BTC")
+						else:
+							logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
+	
+						# Append address info to the bip_entry regardless of balance.
+						bip_entry["addresses"].append({
+							"address": addr,
+							"balance": str(final_balance_btc) if data is not None else "0.0"
+						})
+	
+					# Append the current bip type entry to the wallet object.
+					wallet_obj["bip_types"].append(bip_entry)
+	
+				# Print wallet total balance to console
+				wallet_balance_btc = wallet_balance_sat / 1e8
+				logger.debug(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
+	
+				grand_total_sat += wallet_balance_sat
+				wallets_processed += 1
+	
+				# Export this wallet as JSON if its balance > 0
+				export_wallet_json(w_i + 1, wallet_obj, mnemonic, language, word_count)
+	
+	except (KeyboardInterrupt, InterruptedError) as e:
+        logger.warning(f"\n\nWARNING: Script interrupted: {e}")
+        # Ensure partial summary is triggered
+        global _stop_requested
+        _stop_requested = True
+	
+	finally:
+		# After loop, print summary
+		elapsed_s = time.time() - start_time
+		hours = int(elapsed_s // 3600)
+		minutes = int((elapsed_s % 3600) // 60)
+		seconds = elapsed_s % 60
+	
+		# After all wallets, print summary lines
+		grand_total_btc = grand_total_sat / 1e8
+		logger.info("\n\n=== SUMMARY ===")
+		logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
+		logger.info(f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n")
+		logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
+	
+		# Close all thread-local clients for Fulcrum
+		close_all_threadlocal_clients()
+        
 if __name__ == "__main__":
     main()
