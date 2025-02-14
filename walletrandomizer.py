@@ -26,6 +26,11 @@ from concurrent.futures import (
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
+#START PROFILING
+#import cProfile, pstats, io
+#profiler = cProfile.Profile()
+#profiler.enable()
+    
 ###############################################################################
 # GLOBAL STOP FLAG FOR CTRL+C
 ###############################################################################
@@ -448,45 +453,61 @@ _all_clients = set()
 _clients_lock = threading.Lock()
 
 
-def _worker_get_balance(address: str) -> tuple[str, dict | None]:
+def _worker_get_balances(addresses: list[str]) -> dict[str, dict|None]:
     """
-    Worker function for each address. Each thread creates a FulcrumClient
-    on first use (lazy init) and reuses it for all subsequent addresses
-    handled by that thread.
-
-    Returns:
-      (address, balance_data)
+    Worker function that fetches balances for a chunk of addresses in a single thread.
     """
     if not hasattr(_thread_local, "client"):
-        # Each worker will have its own FulcrumClient
+        # Each worker thread will have its own FulcrumClient
         new_client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
         _thread_local.client = new_client
         with _clients_lock:
             _all_clients.add(new_client)
 
-    return address, _thread_local.client.get_balance(address)
+    results = {}
+    for addr in addresses:
+        balance_data = _thread_local.client.get_balance(addr)
+        results[addr] = balance_data
+    return results
 
 
-def parallel_fetch_balances(
-    executor: ThreadPoolExecutor, addresses: list[str]
+def parallel_fetch_balances_chunked(
+    executor: ThreadPoolExecutor,
+    addresses: list[str],
+    chunk_size: int = 50
 ) -> dict[str, dict | None]:
     """
-    Fetch balances for many addresses concurrently using the given ThreadPoolExecutor.
+    Fetch balances for many addresses concurrently, but in batch chunks.
+    This reduces overhead by creating fewer futures (one per chunk),
+    instead of one future per address.
 
     Args:
-      addresses (list[str]): List of addresses to query.
+        executor: ThreadPoolExecutor to run tasks.
+        addresses: All addresses to fetch.
+        chunk_size: Number of addresses to handle per future.
 
     Returns:
-      dict[str, dict|None]: A mapping from address -> balance result (or None if error).
+        dict[address -> balance data]
     """
-    results = {}
-    future_map = {
-        executor.submit(_worker_get_balance, addr): addr for addr in addresses
-    }
+    all_results = {}
+    future_map = {}
+
+    # Slice addresses into sublists of length 'chunk_size'
+    for i in range(0, len(addresses), chunk_size):
+        chunk = addresses[i:i + chunk_size]
+        future = executor.submit(_worker_get_balances, chunk)
+        future_map[future] = chunk
+
+    # Collect results
     for fut in as_completed(future_map):
-        addr, data = fut.result()
-        results[addr] = data
-    return results
+        chunk = future_map[fut]
+        try:
+            partial_result = fut.result()
+            all_results.update(partial_result)
+        except Exception as e:
+            logger.warning(f"Failed to fetch balances for chunk {chunk}: {e}")
+
+    return all_results
 
 
 def close_all_threadlocal_clients():
@@ -699,31 +720,22 @@ def main():
                 leave=False,
                 mininterval=0.5,
             ):
-                # Check if user pressed CTRL+C
                 if _stop_requested:
-                    logger.warning(
-                        "\n\nWARNING: CTRL+C Detected! => Stopping early."
-                    )
+                    logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
                     break
-
+                
                 logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
 
-                # Generate a new mnemonic for this wallet
-                mnemonic = generate_random_mnemonic(
-                    word_count=word_count, language=language
-                )
+                # 1) Generate a new mnemonic
+                mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
                 logger.debug(f"\n  Generated mnemonic: {mnemonic}")
 
                 wallet_balance_sat = 0
-
-                # Prepare a wallet object for JSON export.
                 wallet_obj = {"bip_types": []}
 
+                # 2) Derive addresses for all BIP types *in parallel processes*
                 fut_map = {}
                 for bip_type in bip_types_list:
-                    logger.debug(
-                        f"\n  => Submitting BIP derivation for: {bip_type.upper()}"
-                    )
                     fut = ppex.submit(
                         _derive_in_process,
                         bip_type,
@@ -732,85 +744,70 @@ def main():
                         language,
                     )
                     fut_map[fut] = bip_type
-                # Collect results from the parallel processes
+
                 bip_results = []
                 for fut in as_completed(fut_map):
                     bip_type = fut_map[fut]
                     try:
                         bip_type2, derivation_info = fut.result()
+                        bip_results.append((bip_type2, derivation_info))
                     except Exception as e:
-                        logger.warning(
-                            f"\nWARNING: Derivation failed for {bip_type}: {e}"
-                        )
-                        continue
-                    bip_results.append((bip_type2, derivation_info))
+                        logger.warning(f"\nWARNING: Derivation failed for {bip_type}: {e}")
 
-                # Now we have a list of (bip_type, derivation_info) for each BIP type
-                # We'll do the balance fetch (parallel_fetch_balances) for each
+                # 3) Combine *all* addresses from all BIP types
+                all_addresses_for_wallet = []
+                bip_entries = []
                 for bip_type, derivation_info in bip_results:
-                    account_xprv = derivation_info["account_xprv"]
-                    account_xpub = derivation_info["account_xpub"]
-                    addresses = derivation_info["addresses"]
-
-                    # Build a bip type entry for JSON export.
                     bip_entry = {
                         "type": bip_type,
-                        "extended_private_key": account_xprv,
-                        "extended_public_key": account_xpub,
-                        "addresses": [],
+                        "extended_private_key": derivation_info["account_xprv"],
+                        "extended_public_key": derivation_info["account_xpub"],
+                        "addresses": [],  # we'll fill in after we fetch balances
                     }
+                    bip_entries.append(bip_entry)
 
-                    logger.debug(
-                        f"    Account Extended Private Key: {account_xprv}"
-                    )
-                    logger.debug(
-                        f"    Account Extended Public Key:  {account_xpub}"
-                    )
-                    logger.debug(f"\n    Derived {len(addresses)} addresses:")
+                    # gather these addresses to fetch all at once
+                    all_addresses_for_wallet.extend(derivation_info["addresses"])
 
-                    # Pass the shared executor to parallel_fetch_balances
-                    results_map = parallel_fetch_balances(executor, addresses)
+                # 4) Now call *once* to fetch balances for all addresses, in chunked form
+                if all_addresses_for_wallet:
+                    results_map = parallel_fetch_balances_chunked(
+                        executor,
+                        all_addresses_for_wallet,
+                        chunk_size=5
+                    )
+                else:
+                    results_map = {}
+
+                # 5) Distribute balances into each bip_entry
+                #    (we have bip_entries[i] which corresponds to bip_results[i])
+                for (bip_type, derivation_info), bip_entry in zip(bip_results, bip_entries):
+                    addresses = derivation_info["addresses"]
                     for addr in addresses:
-                        logger.debug(f"      {addr}")
-                        data = results_map[addr]
+                        data = results_map.get(addr)
                         if data is not None:
                             final_balance_sat = data["final_balance"]
                             wallet_balance_sat += final_balance_sat
                             final_balance_btc = final_balance_sat / 1e8
-
-                            logger.debug(
-                                f"        ADDRESS BALANCE: {final_balance_btc} BTC"
-                            )
                         else:
-                            logger.warning(
-                                f"        WARNING: Could not fetch balance for address: {addr}"
-                            )
+                            final_balance_btc = 0.0
+                            logger.warning(f"        WARNING: Could not fetch balance for address: {addr}")
 
-                        # Append address info to the bip_entry regardless of balance.
-                        bip_entry["addresses"].append(
-                            {
-                                "address": addr,
-                                "balance": (
-                                    str(final_balance_btc)
-                                    if data is not None
-                                    else "0.0"
-                                ),
-                            }
-                        )
+                        bip_entry["addresses"].append({
+                            "address": addr,
+                            "balance": str(final_balance_btc),
+                        })
 
-                    # Append the current bip type entry to the wallet object.
-                    wallet_obj["bip_types"].append(bip_entry)
+                # 6) Append all bip_entries to the wallet object
+                wallet_obj["bip_types"].extend(bip_entries)
 
-                # Print wallet total balance to console
+                # 7) Log or export
                 wallet_balance_btc = wallet_balance_sat / 1e8
-                logger.debug(
-                    f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC"
-                )
+                logger.debug(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
                 grand_total_sat += wallet_balance_sat
                 wallets_processed += 1
 
-                # Export this wallet as JSON if its balance > 0
                 export_wallet_json(
                     w_i + 1, wallet_obj, mnemonic, language, word_count
                 )
@@ -859,3 +856,10 @@ if __name__ == "__main__":
 
     # Run main script
     main()
+
+#STOP PROFILING
+#profiler.disable()
+#s = io.StringIO()
+#ps = pstats.Stats(profiler, stream=s).sort_stats("cumulative")
+#ps.print_stats(50)
+#print(s.getvalue())
