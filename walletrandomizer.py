@@ -835,17 +835,19 @@ def main():
 if __name__ == "__main__":
     # Perform the checks at load time
     _check_dependencies()
-    
+
     # Load .env variables for Fulcrum connection
     from dotenv import load_dotenv
-    
-    dotenv_found = load_dotenv() 
-    
+
+    dotenv_found = load_dotenv()
+
     if not dotenv_found:
-        logger.warning("\nWARNING: No .env file found. Using default Fulcrum host/port.")
-    
+        logger.warning(
+            "\nWARNING: No .env file found. Using default Fulcrum host/port."
+        )
+
     FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
     FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
-    
+
     # Run main script
     main()
