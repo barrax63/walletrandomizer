@@ -10,7 +10,6 @@ import sys
 import signal
 import argparse
 import os
-import re
 import json
 import uuid
 import socket
