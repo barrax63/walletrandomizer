@@ -839,16 +839,17 @@ def main():
         logger.warning(f"\n\nWARNING: Script interrupted: {e}")
 
     finally:
-        # After loop, print summary
+        # Calculate script running time
         elapsed_s = time.time() - start_time
         hours = int(elapsed_s // 3600)
         minutes = int((elapsed_s % 3600) // 60)
         seconds = elapsed_s % 60
-        # After all wallets, print summary lines
+        # Calculate totals
         grand_total_btc = grand_total_sat / 1e8
+        addresses_per_second = (wallets_processed * num_addresses * len(bip_types_list)) / elapsed_s
         if wallets_processed > 0:
             logger.info("\n\n=== SUMMARY ===")
-            logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
+            logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED (~ {addresses_per_second:.0f} addr/s)")
             logger.info(
                 f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n"
             )
