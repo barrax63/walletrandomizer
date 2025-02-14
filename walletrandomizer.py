@@ -10,6 +10,7 @@ import sys
 import signal
 import argparse
 import os
+import re
 import json
 import uuid
 import socket
@@ -17,6 +18,7 @@ import hashlib
 import time
 import logging
 import threading
+import ipaddress
 from concurrent.futures import (
     ProcessPoolExecutor,
     ThreadPoolExecutor,
@@ -599,7 +601,7 @@ def main():
         "-s", "--server",
         type=str,
         default="127.0.0.1",
-        help="Fulcrum server IP/hostname (default: 127.0.0.1)."
+        help="Fulcrum server IP (default: 127.0.0.1)."
     )
     parser.add_argument(
         "-p", "--port",
@@ -622,8 +624,10 @@ def main():
     if args.num_addresses < 1:
         logger.error("\nERROR: num_addresses must be >= 1.")
         sys.exit(1)
-    if not args.server:
-        logger.error("\nERROR: Fulcrum server hostname or IP cannot be empty.")
+    try:
+        ipaddress.ip_address(args.server)
+    except ValueError:
+        logger.error(f"\nERROR: '{args.server}' is not a valid IP address.")
         sys.exit(1)
     if args.port < 1 or args.port > 65535:
         logger.error("\nERROR: Fulcrum server port must be between 1 and 65535.")

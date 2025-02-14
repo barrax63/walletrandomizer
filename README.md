@@ -102,7 +102,7 @@ This command will generate 10 wallets, each with 5 addresses derived under BIP44
 | `-L, --logfile`   | Create a rotating `.log` file in the script directory with a timestamp.                                                             | No       | False        |
 | `-w, --wordcount` | Mnemonic word count. Choose between `12` or `24`.                                                                                   | No       | 12           |
 | `-l, --language`  | BIP39 mnemonic language. Options: `english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`. | No       | `english`    |
-| `-s, --server`    | Fulcrum server IP address or hostname.                                                                                              | No       | `127.0.0.1`  |
+| `-s, --server`    | Fulcrum server IP address.                                                                                                          | No       | `127.0.0.1`  |
 | `-p, --port`      | Fulcrum server TCP port.                                                                                                            | No       | `50001`      |
 
 ### Notes on Usage
