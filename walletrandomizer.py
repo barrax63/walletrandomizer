@@ -68,7 +68,6 @@ def _check_dependencies():
         ("mnemonic", "mnemonic"),
         ("bip_utils", "bip_utils"),
         ("base58", "base58"),
-        ("dotenv", "python-dotenv"),
         ("tqdm", "tqdm"),
     ]
     for mod, install_name in dependencies:
@@ -389,7 +388,7 @@ class FulcrumClient:
 
             # Turn the raw socket into a file-like object for easier line-based reading
             self.f = self.sock.makefile("r")
-        except ConnectionRefusedError as e:
+        except Exception as e:
             logger.error(f"\nERROR: Failed to connect to Fulcrum: {e}")
             sys.exit(1)
 
@@ -596,6 +595,18 @@ def main():
         ],
         help="BIP39 mnemonic language (default: english).",
     )
+    parser.add_argument(
+        "-s", "--server",
+        type=str,
+        default="127.0.0.1",
+        help="Fulcrum server IP/hostname (default: 127.0.0.1)."
+    )
+    parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=50001,
+        help="Fulcrum server TCP port (default: 50001)."
+    )
 
     args = parser.parse_args()
 
@@ -604,12 +615,18 @@ def main():
         logger.error("\nERROR: The -v/--verbose option requires -L/--logfile")
         sys.exit(1)
 
-    # Validate numeric inputs
+    # Validate inputs
     if args.num_wallets < 1:
         logger.error("\nERROR: num_wallets must be >= 1.")
         sys.exit(1)
     if args.num_addresses < 1:
         logger.error("\nERROR: num_addresses must be >= 1.")
+        sys.exit(1)
+    if not args.server:
+        logger.error("\nERROR: Fulcrum server hostname or IP cannot be empty.")
+        sys.exit(1)
+    if args.port < 1 or args.port > 65535:
+        logger.error("\nERROR: Fulcrum server port must be between 1 and 65535.")
         sys.exit(1)
 
     # Parse and validate BIP types
@@ -654,6 +671,10 @@ def main():
             )
             sys.exit(1)
 
+    # Assign parsed arguments
+    global FULCRUM_HOST, FULCRUM_PORT
+    FULCRUM_HOST = args.server
+    FULCRUM_PORT = args.port
     num_wallets = args.num_wallets
     num_addresses = args.num_addresses
     language = args.language
@@ -822,12 +843,15 @@ def main():
         seconds = elapsed_s % 60
         # After all wallets, print summary lines
         grand_total_btc = grand_total_sat / 1e8
-        logger.info("\n\n=== SUMMARY ===")
-        logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
-        logger.info(
-            f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n"
-        )
-        logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
+        if wallets_processed > 0:
+            logger.info("\n\n=== SUMMARY ===")
+            logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED")
+            logger.info(
+                f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n"
+            )
+            logger.info(f"\nScript runtime: {hours}h {minutes}m {seconds:.2f}s\n")
+        else:
+            logger.info(f"\nNo wallets processed.\n")
         # Close all thread-local clients for Fulcrum
         close_all_threadlocal_clients()
 
@@ -835,19 +859,6 @@ def main():
 if __name__ == "__main__":
     # Perform the checks at load time
     _check_dependencies()
-
-    # Load .env variables for Fulcrum connection
-    from dotenv import load_dotenv
-
-    dotenv_found = load_dotenv()
-
-    if not dotenv_found:
-        logger.warning(
-            "\nWARNING: No .env file found. Using default Fulcrum host/port."
-        )
-
-    FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
-    FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
 
     # Run main script
     main()
