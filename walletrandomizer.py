@@ -84,19 +84,6 @@ def _check_dependencies():
             sys.exit(1)
 
 
-# Perform the checks at load time
-_check_dependencies()
-
-###############################################################################
-# LOAD CONFIG FROM .env FILE (FULCRUM HOST/PORT)
-###############################################################################
-from dotenv import load_dotenv
-
-load_dotenv()  # Load .env variables for Fulcrum connection
-
-FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
-FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
-
 ###############################################################################
 # SIGNAL HANDLING
 ###############################################################################
@@ -846,4 +833,19 @@ def main():
 
 
 if __name__ == "__main__":
+    # Perform the checks at load time
+    _check_dependencies()
+    
+    # Load .env variables for Fulcrum connection
+    from dotenv import load_dotenv
+    
+    dotenv_found = load_dotenv() 
+    
+    if not dotenv_found:
+        logger.warning("\nWARNING: No .env file found. Using default Fulcrum host/port.")
+    
+    FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
+    FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
+    
+    # Run main script
     main()
