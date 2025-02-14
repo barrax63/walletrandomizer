@@ -826,11 +826,6 @@ def main():
 
     except (KeyboardInterrupt, InterruptedError) as e:
         logger.warning(f"\n\nWARNING: Script interrupted: {e}")
-        # Force tasks to stop
-        ppex.shutdown(wait=False, cancel_futures=True)
-        # Ensure partial summary is triggered
-        global _stop_requested
-        _stop_requested = True
 
     finally:
         # After loop, print summary
