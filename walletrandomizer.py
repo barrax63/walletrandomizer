@@ -474,7 +474,7 @@ def _worker_get_balances(addresses: list[str]) -> dict[str, dict|None]:
 def parallel_fetch_balances_chunked(
     executor: ThreadPoolExecutor,
     addresses: list[str],
-    chunk_size: int = 50
+    chunk_size: int = 40
 ) -> dict[str, dict | None]:
     """
     Fetch balances for many addresses concurrently, but in batch chunks.
@@ -716,7 +716,7 @@ def main():
             for w_i in tqdm(
                 range(num_wallets),
                 desc="Generating wallets",
-                unit="wallets",
+                unit=" wallets",
                 leave=False,
                 mininterval=0.5,
             ):
