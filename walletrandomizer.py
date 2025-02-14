@@ -43,19 +43,6 @@ def handle_sigint(signum, frame):
 
 
 ###############################################################################
-# BUILT-IN LOGGER SETUP
-###############################################################################
-logger = logging.getLogger("walletrandomizer")
-logger.setLevel(logging.INFO)
-
-# Create a console handler for the terminal output
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter("%(message)s"))
-logger.addHandler(console_handler)
-
-
-###############################################################################
 # UNIFIED IMPORT CHECK
 ###############################################################################
 def _check_dependencies():
@@ -82,13 +69,6 @@ def _check_dependencies():
             )
             logger.error(msg)
             sys.exit(1)
-
-
-###############################################################################
-# SIGNAL HANDLING
-###############################################################################
-# Register SIGINT handler so pressing CTRL+C triggers handle_sigint.
-signal.signal(signal.SIGINT, handle_sigint)
 
 
 ###############################################################################
@@ -863,6 +843,19 @@ def main():
 if __name__ == "__main__":
     # Perform the checks at load time
     _check_dependencies()
+    
+    # Register SIGINT handler so pressing CTRL+C triggers handle_sigint.
+    signal.signal(signal.SIGINT, handle_sigint)
+    
+    # Built-in logger setup
+    logger = logging.getLogger("walletrandomizer")
+    logger.setLevel(logging.INFO)
+
+    # Create a console handler for the terminal output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(console_handler)
 
     # Run main script
     main()

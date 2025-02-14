@@ -223,5 +223,6 @@ $RECYCLE.BIN/
 wallet_search_results_*
 *.json
 .python-version
+*.prof
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,visualstudiocode,python
