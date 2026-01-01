@@ -17,19 +17,24 @@ fi
 # Build CLI arguments from environment variables
 CLI_ARGS=()
 
-# The script needs num_wallets, num_addresses, and bip_types as first 3 positional args
-# But we can also use flags for num_wallets and bip_types
-# For now, use flags which take precedence
+# Provide all positionals in order, even if they'll be overridden by flags
+# num_wallets (will be overridden by --num-wallets flag if provided)
+NUM_WALLETS_POS="${NUM_WALLETS:-10}"
+CLI_ARGS+=("$NUM_WALLETS_POS")
 
+# num_addresses (required positional)
+NUM_ADDRESSES="${NUM_ADDRESSES:-5}"
+CLI_ARGS+=("$NUM_ADDRESSES")
+
+# bip_types (will be overridden by --network flag if provided)
+NETWORK_POS="${NETWORK:-bip84}"
+CLI_ARGS+=("$NETWORK_POS")
+
+# Now add flags that will override the positionals
 # Add --num-wallets flag if NUM_WALLETS is set (can be -1 for infinite)
 if [ -n "$NUM_WALLETS" ]; then
     CLI_ARGS+=("--num-wallets" "$NUM_WALLETS")
 fi
-
-# Add num_addresses as positional (required)
-# Default to 5 if not set
-NUM_ADDRESSES="${NUM_ADDRESSES:-5}"
-CLI_ARGS+=("$NUM_ADDRESSES")
 
 # Add --network flag if NETWORK is set (maps to bip_types)
 if [ -n "$NETWORK" ]; then
