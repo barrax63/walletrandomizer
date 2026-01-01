@@ -233,9 +233,11 @@ services:
 
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
-| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes** | `192.168.1.100:50001` |
+| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes*** | `192.168.1.100:50001` |
 | `FULCRUM_HOST` | Fulcrum server host (alternative to FULCRUM_SERVER) | No | `192.168.1.100` |
 | `FULCRUM_PORT` | Fulcrum server port (alternative to FULCRUM_SERVER) | No | `50001` |
+
+\* Required for CLI mode. For web mode, you can use either `FULCRUM_SERVER` or both `FULCRUM_HOST` and `FULCRUM_PORT`.
 
 ### Wallet Generation Configuration
 

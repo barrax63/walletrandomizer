@@ -7,12 +7,13 @@ MODE="${MODE:-cli}"
 if [ "$MODE" = "web" ]; then
     echo "Starting Wallet Randomizer Web Interface..."
     
-    # Parse FULCRUM_SERVER if provided
+    # Parse FULCRUM_SERVER if provided, otherwise use separate FULCRUM_HOST and FULCRUM_PORT
     if [ -n "$FULCRUM_SERVER" ]; then
         IFS=':' read -r FULCRUM_HOST FULCRUM_PORT <<< "$FULCRUM_SERVER"
         export FULCRUM_HOST="${FULCRUM_HOST:-127.0.0.1}"
         export FULCRUM_PORT="${FULCRUM_PORT:-50001}"
     else
+        # Use individual settings if FULCRUM_SERVER not provided
         export FULCRUM_HOST="${FULCRUM_HOST:-127.0.0.1}"
         export FULCRUM_PORT="${FULCRUM_PORT:-50001}"
     fi

@@ -86,7 +86,13 @@ def generate_wallets():
     }
     """
     try:
+        # Validate Content-Type
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+        
         data = request.get_json()
+        if data is None:
+            return jsonify({"error": "Invalid JSON data"}), 400
         
         # Validate inputs
         num_wallets = int(data.get("num_wallets", 1))
@@ -112,7 +118,10 @@ def generate_wallets():
         # Generate wallets
         results = []
         
-        # Create Fulcrum client
+        # Create Fulcrum client for this request
+        # Note: For the expected usage pattern (infrequent requests, generating 1-10 wallets),
+        # creating a new client per request is acceptable. The connection is properly closed
+        # in the finally block. For high-frequency scenarios, consider implementing connection pooling.
         fulcrum_client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
         
         try:
@@ -151,6 +160,7 @@ def generate_wallets():
                             wallet_balance_sat += final_balance_sat
                             final_balance_btc = final_balance_sat / 1e8
                         else:
+                            final_balance_sat = 0
                             final_balance_btc = 0.0
                         
                         bip_entry["addresses"].append({
