@@ -18,6 +18,7 @@ import time
 import logging
 import threading
 import ipaddress
+import itertools
 from concurrent.futures import (
     ProcessPoolExecutor,
     ThreadPoolExecutor,
@@ -264,6 +265,7 @@ def export_wallet_json(
     mnemonic: str,
     language: str,
     word_count: int,
+    output_dir: str = ".",
 ) -> None:
     """
     Exports the wallet data to a JSON file if the wallet has a balance greater than 0.
@@ -298,6 +300,7 @@ def export_wallet_json(
         mnemonic (str): The BIP39 mnemonic used for this wallet.
         language (str): The mnemonic language.
         word_count (int): The number of words in the mnemonic (12 or 24).
+        output_dir (str): The directory where the JSON file should be saved (default: current directory).
     """
     # Calculate the wallet's total balance by summing all address balances.
     total_balance = 0.0
@@ -322,12 +325,13 @@ def export_wallet_json(
 
     # Generate a random filename using a UUID
     filename = f"{uuid.uuid4()}.json"
+    filepath = os.path.join(output_dir, filename)
 
     try:
-        with open(filename, "w", encoding="utf-8") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(wallet_json, f, indent=2)
         logger.info(
-            f"\nExported wallet {wallet_index} to JSON file: {filename}"
+            f"\nExported wallet {wallet_index} to JSON file: {filepath}"
         )
     except Exception as e:
         logger.warning(
@@ -549,17 +553,45 @@ def main():
     parser.add_argument(
         "num_wallets",
         type=int,
-        help="Number of wallets to generate (must be >= 1).",
+        nargs='?',
+        help="Number of wallets to generate (must be >= 1, or -1 for infinite).",
     )
     parser.add_argument(
         "num_addresses",
         type=int,
+        nargs='?',
         help="Number of addresses per wallet (must be >= 1).",
     )
     parser.add_argument(
         "bip_types",
         type=str,
+        nargs='?',
         help="Comma-separated BIP derivation types: 'bip44,bip49,bip84,bip86'",
+    )
+    parser.add_argument(
+        "--num-wallets",
+        type=int,
+        dest="num_wallets_flag",
+        help="Number of wallets to generate (must be >= 1, or -1 for infinite).",
+    )
+    parser.add_argument(
+        "--network",
+        type=str,
+        dest="network_flag",
+        help="Alternative to bip_types positional: comma-separated BIP derivation types (e.g., 'bip44,bip84').",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        dest="output_path",
+        help="Output directory for wallet JSON files (default: current directory).",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        dest="output_format",
+        default="json",
+        help="Output format (default: json).",
     )
     parser.add_argument(
         "-v",
@@ -612,14 +644,31 @@ def main():
 
     args = parser.parse_args()
 
+    # Merge positional and flag-based arguments (flags take precedence)
+    if args.num_wallets_flag is not None:
+        args.num_wallets = args.num_wallets_flag
+    if args.network_flag is not None:
+        args.bip_types = args.network_flag
+    
+    # Validate that required arguments are provided
+    if args.num_wallets is None:
+        logger.error("\nERROR: num_wallets must be provided (positional or --num-wallets).")
+        sys.exit(1)
+    if args.num_addresses is None:
+        logger.error("\nERROR: num_addresses must be provided as positional argument.")
+        sys.exit(1)
+    if args.bip_types is None:
+        logger.error("\nERROR: bip_types must be provided (positional or --network).")
+        sys.exit(1)
+
     # Enforce that --verbose can only be used in conjunction with --logfile
     if args.verbose and not args.logfile:
         logger.error("\nERROR: The -v/--verbose option requires -L/--logfile")
         sys.exit(1)
 
-    # Validate inputs
-    if args.num_wallets < 1:
-        logger.error("\nERROR: num_wallets must be >= 1.")
+    # Validate inputs (-1 is allowed for infinite wallets)
+    if args.num_wallets < -1 or args.num_wallets == 0:
+        logger.error("\nERROR: num_wallets must be >= 1, or -1 for infinite generation.")
         sys.exit(1)
     if args.num_addresses < 1:
         logger.error("\nERROR: num_addresses must be >= 1.")
@@ -683,8 +732,25 @@ def main():
     num_addresses = args.num_addresses
     language = args.language
     word_count = args.wordcount
+    output_dir = args.output_path if args.output_path else "."
+    
+    # Create output directory if it doesn't exist
+    if output_dir != ".":
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except Exception as e:
+            logger.error(f"\nERROR: Failed to create output directory '{output_dir}': {e}")
+            sys.exit(1)
 
-    total_addrs = num_wallets * num_addresses * len(bip_types_list)
+    # Handle infinite wallet generation
+    infinite_mode = (num_wallets == -1)
+    if infinite_mode:
+        total_addrs = "∞"
+        logger.info("\n===== WALLET RANDOMIZER (INFINITE MODE) =====\n")
+    else:
+        total_addrs = num_wallets * num_addresses * len(bip_types_list)
+        logger.info("\n===== WALLET RANDOMIZER =====\n")
+    
     grand_total_sat = 0
     wallets_processed = 0
 
@@ -692,12 +758,12 @@ def main():
     start_time = time.time()
 
     # Print initial info
-    logger.info("\n===== WALLET RANDOMIZER =====\n")
-    logger.info(f"Number of Wallets:    {num_wallets}")
+    logger.info(f"Number of Wallets:    {num_wallets if not infinite_mode else 'Infinite'}")
     logger.info(f"Addresses per Wallet: {num_addresses}")
     logger.info(f"BIP Type(s):          {', '.join(bip_types_list)}")
     logger.info(f"Mnemonic Language:    {language}")
     logger.info(f"Word count:           {word_count}")
+    logger.info(f"Output Directory:     {output_dir}")
     logger.info(f"\nTotal addresses:      {total_addrs}\n")
 
     from tqdm import tqdm
@@ -713,18 +779,37 @@ def main():
         ) as ppex, ThreadPoolExecutor(max_workers=num_addresses) as executor:
 
             # MAIN LOOP: generate wallets, derive addresses (via ProcessPoolExecutor), get balances
-            for w_i in tqdm(
-                range(num_wallets),
-                desc="Generating wallets",
-                unit=" wallets",
-                leave=False,
-                mininterval=0.5,
-            ):
-                if _stop_requested:
-                    logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
-                    break
+            # Create an iterator that either loops num_wallets times or infinitely
+            if infinite_mode:
+                wallet_iterator = itertools.count(0)  # Truly infinite iterator
+                progress_bar = tqdm(
+                    desc="Generating wallets",
+                    unit=" wallets",
+                    leave=False,
+                    mininterval=0.5,
+                    total=None,  # Infinite progress bar
+                )
+            else:
+                wallet_iterator = range(num_wallets)
+                progress_bar = tqdm(
+                    wallet_iterator,
+                    desc="Generating wallets",
+                    unit=" wallets",
+                    leave=False,
+                    mininterval=0.5,
+                )
+            
+            try:
+                for w_i in wallet_iterator:
+                    if _stop_requested:
+                        logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
+                        break
+                    
+                    if infinite_mode:
+                        progress_bar.update(1)
                 
-                logger.debug(f"\n\n=== WALLET {w_i + 1}/{num_wallets} ===")
+                wallet_display_num = w_i + 1
+                logger.debug(f"\n\n=== WALLET {wallet_display_num} ===")
 
                 # 1) Generate a new mnemonic
                 mnemonic = generate_random_mnemonic(word_count=word_count, language=language)
@@ -803,14 +888,17 @@ def main():
 
                 # 7) Log or export
                 wallet_balance_btc = wallet_balance_sat / 1e8
-                logger.debug(f"\n  WALLET {w_i + 1} TOTAL BALANCE: {wallet_balance_btc} BTC")
+                logger.debug(f"\n  WALLET {wallet_display_num} TOTAL BALANCE: {wallet_balance_btc} BTC")
 
                 grand_total_sat += wallet_balance_sat
                 wallets_processed += 1
 
                 export_wallet_json(
-                    w_i + 1, wallet_obj, mnemonic, language, word_count
+                    wallet_display_num, wallet_obj, mnemonic, language, word_count, output_dir
                 )
+            finally:
+                # Always close the progress bar
+                progress_bar.close()
 
     except (KeyboardInterrupt, InterruptedError) as e:
         logger.warning(f"\n\nWARNING: Script interrupted: {e}")
@@ -823,10 +911,13 @@ def main():
         seconds = elapsed_s % 60
         # Calculate totals
         grand_total_btc = grand_total_sat / 1e8
-        addresses_per_second = (wallets_processed * num_addresses * len(bip_types_list)) / elapsed_s
+        addresses_per_second = (wallets_processed * num_addresses * len(bip_types_list)) / elapsed_s if elapsed_s > 0 else 0
         if wallets_processed > 0:
             logger.info("\n\n=== SUMMARY ===")
-            logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED (~ {addresses_per_second:.0f} addr/s)")
+            if infinite_mode:
+                logger.info(f"\n{wallets_processed} WALLETS PROCESSED (~ {addresses_per_second:.0f} addr/s)")
+            else:
+                logger.info(f"\n{wallets_processed}/{num_wallets} WALLETS PROCESSED (~ {addresses_per_second:.0f} addr/s)")
             logger.info(
                 f"\nGRAND TOTAL BALANCE ACROSS ALL WALLETS:\n\n  {grand_total_btc} BTC\n"
             )
@@ -838,12 +929,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # Perform the checks at load time
-    _check_dependencies()
-    
-    # Register SIGINT handler so pressing CTRL+C triggers handle_sigint.
-    signal.signal(signal.SIGINT, handle_sigint)
-    
     # Built-in logger setup
     logger = logging.getLogger("walletrandomizer")
     logger.setLevel(logging.INFO)
@@ -853,6 +938,12 @@ if __name__ == "__main__":
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console_handler)
+
+    # Perform the checks at load time
+    _check_dependencies()
+    
+    # Register SIGINT handler so pressing CTRL+C triggers handle_sigint.
+    signal.signal(signal.SIGINT, handle_sigint)
 
     # Run main script
     main()

@@ -1,0 +1,50 @@
+volumes:
+  walletrandomizer_storage:
+
+networks:
+  main:
+    driver: bridge
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m" 
+    max-file: "5"
+
+x-security-baseline: &security-baseline
+  security_opt:
+    - no-new-privileges:true 
+    - apparmor=docker-default
+  cap_drop:
+    - ALL
+
+services:
+  walletrandomizer:
+    <<: *security-baseline
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: barrax63/walletrandomizer:latest
+    networks: ['main']
+    ports:
+      # Publish port 5000 (for potential future web interface)
+      - "5000:5000"
+    hostname: walletrandomizer
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      # Mount data volume for output files
+      - walletrandomizer_storage:/data
+      - /etc/localtime:/etc/localtime:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging: *default-logging
