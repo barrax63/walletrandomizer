@@ -18,6 +18,7 @@ import time
 import logging
 import threading
 import ipaddress
+import itertools
 from concurrent.futures import (
     ProcessPoolExecutor,
     ThreadPoolExecutor,
@@ -577,7 +578,7 @@ def main():
         "--network",
         type=str,
         dest="network_flag",
-        help="Comma-separated BIP derivation types (alias for bip_types).",
+        help="Alternative to bip_types positional: comma-separated BIP derivation types (e.g., 'bip44,bip84').",
     )
     parser.add_argument(
         "--output",
@@ -780,7 +781,7 @@ def main():
             # MAIN LOOP: generate wallets, derive addresses (via ProcessPoolExecutor), get balances
             # Create an iterator that either loops num_wallets times or infinitely
             if infinite_mode:
-                wallet_iterator = range(0, 999999999)  # Practically infinite
+                wallet_iterator = itertools.count(0)  # Truly infinite iterator
                 progress_bar = tqdm(
                     desc="Generating wallets",
                     unit=" wallets",
@@ -798,14 +799,14 @@ def main():
                     mininterval=0.5,
                 )
             
-            for w_i in wallet_iterator:
-                if _stop_requested:
-                    logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
-                    progress_bar.close()
-                    break
-                
-                if infinite_mode:
-                    progress_bar.update(1)
+            try:
+                for w_i in wallet_iterator:
+                    if _stop_requested:
+                        logger.warning("\n\nWARNING: CTRL+C Detected! => Stopping early.")
+                        break
+                    
+                    if infinite_mode:
+                        progress_bar.update(1)
                 
                 wallet_display_num = w_i + 1
                 logger.debug(f"\n\n=== WALLET {wallet_display_num} ===")
@@ -895,9 +896,8 @@ def main():
                 export_wallet_json(
                     wallet_display_num, wallet_obj, mnemonic, language, word_count, output_dir
                 )
-            
-            # Close progress bar if in infinite mode
-            if infinite_mode:
+            finally:
+                # Always close the progress bar
                 progress_bar.close()
 
     except (KeyboardInterrupt, InterruptedError) as e:

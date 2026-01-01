@@ -18,6 +18,8 @@ fi
 CLI_ARGS=()
 
 # Provide all positionals in order, even if they'll be overridden by flags
+# This is required because argparse needs all positional arguments to parse correctly
+# when mixing positionals with optional flags
 # num_wallets (will be overridden by --num-wallets flag if provided)
 NUM_WALLETS_POS="${NUM_WALLETS:-10}"
 CLI_ARGS+=("$NUM_WALLETS_POS")
