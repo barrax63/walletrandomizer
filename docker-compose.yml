@@ -1,31 +1,50 @@
-version: '3.8'
+volumes:
+  walletrandomizer_storage:
+
+networks:
+  main:
+    driver: bridge
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m" 
+    max-file: "5"
+
+x-security-baseline: &security-baseline
+  security_opt:
+    - no-new-privileges:true 
+    - apparmor=docker-default
+  cap_drop:
+    - ALL
 
 services:
   walletrandomizer:
+    <<: *security-baseline
     build:
       context: .
       dockerfile: Dockerfile
-    image: walletrandomizer:latest
-    container_name: walletrandomizer
-    environment:
-      # Required: Fulcrum server address (format: host:port)
-      FULCRUM_SERVER: "${FULCRUM_SERVER}"
-      
-      # Optional with defaults
-      NUM_WALLETS: "${NUM_WALLETS:-10}"
-      NUM_ADDRESSES: "${NUM_ADDRESSES:-5}"
-      NETWORK: "${NETWORK:-bip44,bip84}"
-      OUTPUT_PATH: "${OUTPUT_PATH:-/data}"
-      FORMAT: "${FORMAT:-json}"
-    volumes:
-      # Mount data volume for output files
-      - wallet-data:/data
+    image: barrax63/walletrandomizer:latest
+    networks: ['main']
     ports:
       # Publish port 5000 (for potential future web interface)
       - "5000:5000"
-    # Override command if needed
-    # command: []
-
-volumes:
-  wallet-data:
-    driver: local
+    hostname: walletrandomizer
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      # Mount data volume for output files
+      - walletrandomizer_storage:/data
+      - /etc/localtime:/etc/localtime:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging: *default-logging
