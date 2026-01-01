@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet Randomizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔐 Wallet Randomizer</h1>
+            <p class="subtitle">Generate and check BIP39 Bitcoin wallets</p>
+        </header>
+
+        <main class="hero">
+            <section class="intro">
+                <h2>What is Wallet Randomizer?</h2>
+                <p>
+                    Wallet Randomizer is a powerful tool that generates random BIP39 mnemonics,
+                    derives Bitcoin addresses using multiple derivation paths (BIP44, BIP49, BIP84, BIP86),
+                    and queries their balances using a local Fulcrum Electrum server.
+                </p>
+            </section>
+
+            <section class="features">
+                <h2>Features</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🔑</div>
+                        <h3>BIP39 Generation</h3>
+                        <p>Generate secure BIP39 mnemonics with 12 or 24 words in multiple languages</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔗</div>
+                        <h3>Multiple Derivation Paths</h3>
+                        <p>Support for BIP44 (Legacy), BIP49 (Nested SegWit), BIP84 (Native SegWit), and BIP86 (Taproot)</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3>Fast Balance Checks</h3>
+                        <p>Query balances via local Fulcrum server with parallel processing</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">💾</div>
+                        <h3>Auto Export</h3>
+                        <p>Automatically export wallets with non-zero balances to JSON</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="how-to">
+                <h2>How to Use</h2>
+                <ol>
+                    <li><strong>Configure your settings:</strong> Set the number of wallets, addresses per wallet, and BIP types</li>
+                    <li><strong>Generate wallets:</strong> Click the generate button to create random wallets</li>
+                    <li><strong>Review results:</strong> See generated addresses and their balances</li>
+                    <li><strong>Export findings:</strong> Wallets with balances are automatically saved</li>
+                </ol>
+            </section>
+
+            <div class="cta-section">
+                <a href="/generator" class="btn btn-primary">Get Started →</a>
+            </div>
+        </main>
+
+        <footer>
+            <p>Wallet Randomizer | For educational and experimental purposes</p>
+            <p class="status-indicator">
+                <span id="status-dot" class="status-dot"></span>
+                <span id="status-text">Checking connection...</span>
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Check API health status
+        fetch('/api/health')
+            .then(response => response.json())
+            .then(data => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                
+                if (data.fulcrum && data.fulcrum === 'connected') {
+                    statusDot.className = 'status-dot status-connected';
+                    statusText.textContent = `Connected to Fulcrum (${data.fulcrum_host}:${data.fulcrum_port})`;
+                } else {
+                    statusDot.className = 'status-dot status-error';
+                    statusText.textContent = `Fulcrum error: ${data.fulcrum}`;
+                }
+            })
+            .catch(error => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.className = 'status-dot status-error';
+                statusText.textContent = 'Unable to connect to server';
+            });
+    </script>
+</body>
+</html>

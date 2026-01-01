@@ -1,23 +1,21 @@
 # Wallet Randomizer
 
-**Wallet Randomizer** (`walletrandomizer.py`) is a Python script that generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and then queries their balances using a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server.
+**Wallet Randomizer** is a Docker-based application that generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server.
 
-The script can export any wallet with a non-zero balance to a JSON file for further analysis. It is primarily intended for experimentation and educational purposes, or for specialized use cases where you need to quickly generate and check multiple wallet addresses.
+The application provides both a **web interface** and a **command-line interface**, both running in Docker containers.
 
 ---
 
 ## Table of Contents
 1. [Features](#features)
 2. [Requirements](#requirements)
-3. [Installation](#installation)
-4. [Usage](#usage)
-   - [Direct Python Usage](#direct-python-usage)
-   - [Docker/Compose Usage](#dockercompose-usage)
-5. [Command-Line Arguments](#command-line-arguments)
-6. [Environment Variables (Docker/Compose)](#environment-variables-dockercompose)
-7. [Infinite Wallet Generation](#infinite-wallet-generation)
-8. [Logging](#logging)
-9. [Example](#example)
+3. [Quick Start](#quick-start)
+4. [Web Interface](#web-interface)
+5. [Command-Line Interface](#command-line-interface)
+6. [Configuration](#configuration)
+7. [Docker Services](#docker-services)
+8. [Environment Variables](#environment-variables)
+9. [Examples](#examples)
 10. [Author](#author)
 
 ---
@@ -34,257 +32,310 @@ The script can export any wallet with a non-zero balance to a JSON file for furt
   - BIP84: Native SegWit (P2WPKH)
   - BIP86: Taproot (P2TR)
 
+- **Web Interface**  
+  Modern, responsive web UI for easy wallet generation and balance checking.
+
 - **Local Fulcrum Queries**  
   Checks each derived address's final balance by querying a Fulcrum Electrum server (via TCP).
 
 - **Parallel Processing**  
-  Utilizes `ProcessPoolExecutor` for wallet derivation and `ThreadPoolExecutor` for concurrent balance checks, speeding up bulk address queries.
+  Utilizes concurrent processing for wallet derivation and balance checks, speeding up bulk address queries.
 
 - **Balance-Based JSON Export**  
   Automatically exports wallet data (mnemonic, derivation type, addresses, and balances) to JSON if the total wallet balance is greater than 0.
 
-- **Graceful CTRL+C Handling**  
-  Completes the current wallet's balance checks before stopping, preserving a partial summary.
-
-- **Infinite Wallet Generation**  
-  Generate wallets indefinitely by setting `--num-wallets -1` or `NUM_WALLETS=-1` (Docker), useful for continuous scanning.
-
-- **Docker/Compose Support**  
-  Containerized deployment with environment variable configuration for easy integration and deployment.
+- **Docker-Only Deployment**  
+  Simplified deployment with Docker Compose for consistent, reproducible environments.
 
 ---
 
 ## Requirements
 
-This script requires:
-
-- **Python 3.10 or 3.11** (or use the provided Docker image)
-- The following Python libraries:
-  - [mnemonic](https://pypi.org/project/mnemonic/)
-  - [bip_utils](https://pypi.org/project/bip_utils/)
-  - [base58](https://pypi.org/project/base58/)
-  - [tqdm](https://pypi.org/project/tqdm/)
-
-It also requires access to a **Fulcrum Electrum server** (default `127.0.0.1:50001`) running on your local machine or a reachable host/port.
+- **Docker** and **Docker Compose** installed on your system
+- Access to a **Fulcrum Electrum server** (default `127.0.0.1:50001`) running on your local machine or a reachable host/port
 
 ---
 
-## Installation
+## Quick Start
 
-### Direct Installation
-
-1. **Clone** or **download** this repository.
-
-2. **Install dependencies** in your Python environment:
+1. **Clone the repository:**
    ```bash
-   pip install -r requirements.txt
+   git clone https://github.com/barrax63/walletrandomizer.git
+   cd walletrandomizer
    ```
 
-3. (Optional) **Set up Fulcrum** locally or ensure you have network access to a Fulcrum server.
-
-### Docker Installation
-
-1. **Clone** or **download** this repository.
-
-2. **Build the Docker image** (or use docker-compose):
+2. **Create a `.env` file from the example:**
    ```bash
-   docker build -t walletrandomizer:latest .
+   cp .env.example .env
    ```
 
----
-
-## Usage
-
-### Direct Python Usage
-
-Run the script directly from a terminal:
-```bash
-./walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
-```
-Or explicitly with Python:
-```bash
-python walletrandomizer.py <num_wallets> <num_addresses> <bip_types> [options]
-```
-
-**Example quick run:**
-```bash
-python walletrandomizer.py 10 5 bip44,bip84
-```
-This command will generate 10 wallets, each with 5 addresses derived under BIP44 and BIP84, then query balances on each derived address.
-
-**Infinite wallet generation:**
-```bash
-python walletrandomizer.py --num-wallets -1 5 bip44,bip84 --server 127.0.0.1 --port 50001
-```
-This will generate wallets indefinitely until interrupted with CTRL+C.
-
-### Docker/Compose Usage
-
-The easiest way to run the wallet randomizer is with Docker Compose.
-
-1. **Create a `.env` file** in the project directory with your configuration:
+3. **Edit `.env` and configure your Fulcrum server:**
    ```bash
    FULCRUM_SERVER=192.168.1.100:50001
-   NUM_WALLETS=100
-   NUM_ADDRESSES=10
-   NETWORK=bip44,bip84,bip86
-   OUTPUT_PATH=/data
+   MODE=web
    ```
 
-2. **Run with Docker Compose:**
+4. **Start the web interface:**
    ```bash
-   docker-compose up
+   docker-compose up -d
    ```
 
-3. **Access generated wallet files:**
-   Wallet JSON files with non-zero balances will be saved to the mounted volume.
-   ```bash
-   docker volume inspect walletrandomizer_wallet-data
-   ```
+5. **Access the web interface:**
+   Open your browser and navigate to `http://localhost:5000`
 
-**Infinite mode with Docker Compose:**
-Set `NUM_WALLETS=-1` in your `.env` file:
+---
+
+## Web Interface
+
+The web interface provides a user-friendly way to generate wallets and check balances.
+
+### Starting the Web Interface
+
 ```bash
-FULCRUM_SERVER=192.168.1.100:50001
-NUM_WALLETS=-1
-NUM_ADDRESSES=5
-NETWORK=bip84
-OUTPUT_PATH=/data
+docker-compose up -d
 ```
 
-**Run directly with Docker:**
+The web server will be available at `http://localhost:5000` (or the port specified in your `.env` file).
+
+### Features
+
+- **Landing Page:** Overview of the application and its features
+- **Wallet Generator:** Interactive form to configure and generate wallets
+- **Real-time Results:** View generated wallets, addresses, and balances
+- **Status Indicators:** Connection status and operation progress
+- **Responsive Design:** Works on desktop, tablet, and mobile devices
+
+### Web Interface Configuration
+
+Configure the web interface using environment variables in your `.env` file:
+
+```bash
+MODE=web
+FULCRUM_SERVER=192.168.1.100:50001
+WEB_HOST=0.0.0.0
+WEB_PORT=5000
+WEB_WORKERS=4
+WEB_TIMEOUT=120
+```
+
+### Accessing Exported Wallets
+
+Wallets with non-zero balances are automatically exported to JSON files in the Docker volume:
+
+```bash
+# List exported wallets
+docker-compose exec web ls -la /data
+
+# Copy a wallet file to your local machine
+docker cp $(docker-compose ps -q web):/data/<wallet-file>.json ./
+```
+
+---
+
+## Command-Line Interface
+
+For advanced users or automated workflows, the CLI mode is available.
+
+### Running CLI Mode
+
+**Option 1: Using Docker Compose (uncomment the CLI service in docker-compose.yml)**
+
+Edit `docker-compose.yml` and uncomment the `cli` service, then:
+
+```bash
+docker-compose up cli
+```
+
+**Option 2: Using Docker directly**
+
 ```bash
 docker run --rm \
+  -e MODE=cli \
   -e FULCRUM_SERVER=192.168.1.100:50001 \
   -e NUM_WALLETS=10 \
   -e NUM_ADDRESSES=5 \
   -e NETWORK=bip44,bip84 \
   -e OUTPUT_PATH=/data \
   -v $(pwd)/output:/data \
-  walletrandomizer:latest
+  barrax63/walletrandomizer:latest
+```
+
+### CLI Features
+
+- **Infinite Wallet Generation:** Set `NUM_WALLETS=-1` for continuous wallet generation
+- **Multiple BIP Types:** Comma-separated list (e.g., `bip44,bip49,bip84,bip86`)
+- **Configurable Output:** Set output directory with `OUTPUT_PATH`
+
+---
+
+## Configuration
+
+### Creating a `.env` File
+
+Copy the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+Edit the `.env` file with your preferred settings. See [Environment Variables](#environment-variables) for all available options.
+
+---
+
+## Docker Services
+
+### Web Service (Default)
+
+The web service provides the HTTP interface for wallet generation.
+
+```yaml
+services:
+  web:
+    image: barrax63/walletrandomizer:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - MODE=web
+      - FULCRUM_SERVER=127.0.0.1:50001
+    volumes:
+      - walletrandomizer_storage:/data
+```
+
+### CLI Service (Optional)
+
+The CLI service can run alongside or instead of the web service for automated workflows.
+
+```yaml
+services:
+  cli:
+    image: barrax63/walletrandomizer:latest
+    environment:
+      - MODE=cli
+      - FULCRUM_SERVER=127.0.0.1:50001
+      - NUM_WALLETS=10
+      - NUM_ADDRESSES=5
+      - NETWORK=bip84
+    volumes:
+      - walletrandomizer_storage:/data
 ```
 
 ---
 
-## Command-Line Arguments
+## Environment Variables
 
-| Argument          | Description                                                                                                                         | Required | Default      |
-|-------------------|-------------------------------------------------------------------------------------------------------------------------------------|----------|--------------|
-| `num_wallets`     | Number of wallets to generate. Must be ≥ 1, or -1 for infinite generation.                                                         | Yes*     | N/A          |
-| `num_addresses`   | Number of addresses per wallet. Must be ≥ 1.                                                                                        | Yes      | N/A          |
-| `bip_types`       | Comma-separated list of BIP derivation types. Possible values: `bip44`, `bip49`, `bip84`, `bip86`.                                  | Yes*     | N/A          |
-| `--num-wallets`   | Alternative flag for num_wallets (takes precedence over positional).                                                                | No       | N/A          |
-| `--network`       | Alternative flag for bip_types (takes precedence over positional).                                                                  | No       | N/A          |
-| `--output`        | Output directory for wallet JSON files.                                                                                              | No       | `.` (current)|
-| `--format`        | Output format.                                                                                                                       | No       | `json`       |
-| `-v, --verbose`   | Enable verbose (debug-level) messages in the console.                                                                               | No       | False        |
-| `-L, --logfile`   | Create a rotating `.log` file in the script directory with a timestamp.                                                             | No       | False        |
-| `-w, --wordcount` | Mnemonic word count. Choose between `12` or `24`.                                                                                   | No       | 12           |
-| `-l, --language`  | BIP39 mnemonic language. Options: `english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`. | No       | `english`    |
-| `-s, --server`    | Fulcrum server IP address.                                                                                                          | No       | `127.0.0.1`  |
-| `-p, --port`      | Fulcrum server TCP port.                                                                                                            | No       | `50001`      |
+### Mode Configuration
 
-\* Required unless provided via flag alternative (--num-wallets, --network).
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `MODE` | Run mode: `web` or `cli` | `cli` | No |
 
-### Notes on Usage
-- **`<num_wallets>`** and **`<num_addresses>`** are integers that specify how many wallets to generate and how many addresses to derive for each wallet.
-- **`bip_types`** should be a comma-separated string with at least one of the following: `bip44, bip49, bip84, bip86`. Example: `bip44,bip84`.
-- **Infinite mode:** Set `num_wallets` or `--num-wallets` to `-1` to generate wallets indefinitely.
+### Fulcrum Server Configuration
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes** | `192.168.1.100:50001` |
+| `FULCRUM_HOST` | Fulcrum server host (alternative to FULCRUM_SERVER) | No | `192.168.1.100` |
+| `FULCRUM_PORT` | Fulcrum server port (alternative to FULCRUM_SERVER) | No | `50001` |
+
+### Wallet Generation Configuration
+
+| Variable | Description | Default | Valid Values |
+|----------|-------------|---------|--------------|
+| `NUM_WALLETS` | Number of wallets to generate (CLI: -1 for infinite) | `10` (CLI), `1` (web) | ≥1 or -1 |
+| `NUM_ADDRESSES` | Number of addresses per wallet | `5` | ≥1 |
+| `NETWORK` | Comma-separated BIP types | `bip84` | `bip44,bip49,bip84,bip86` |
+| `OUTPUT_PATH` | Output directory for JSON files | `/data` | Any valid path |
+| `FORMAT` | Output format | `json` | `json` |
+
+### Web Server Configuration (web mode only)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WEB_HOST` | Web server host | `0.0.0.0` |
+| `WEB_PORT` | Web server port | `5000` |
+| `WEB_WORKERS` | Number of gunicorn workers | `4` |
+| `WEB_TIMEOUT` | Request timeout in seconds | `120` |
 
 ---
 
-## Environment Variables (Docker/Compose)
+## Examples
 
-When using Docker or Docker Compose, configure the wallet randomizer using environment variables:
+### Example 1: Web Interface with Custom Configuration
 
-| Variable          | Description                                                                 | Required | Default          |
-|-------------------|-----------------------------------------------------------------------------|----------|------------------|
-| `FULCRUM_SERVER`  | Fulcrum server address in format `host:port` (e.g., `192.168.1.100:50001`) | **Yes**  | N/A              |
-| `NUM_WALLETS`     | Number of wallets to generate (use `-1` for infinite)                       | No       | `10`             |
-| `NUM_ADDRESSES`   | Number of addresses per wallet                                              | No       | `5`              |
-| `NETWORK`         | Comma-separated BIP types (e.g., `bip44,bip84,bip86`)                       | No       | `bip44,bip84`    |
-| `OUTPUT_PATH`     | Directory for output JSON files (inside container)                          | No       | `/data`          |
-| `FORMAT`          | Output format                                                                | No       | `json`           |
+Create a `.env` file:
 
-**Example `.env` file:**
 ```bash
-FULCRUM_SERVER=192.168.1.100:50001
-NUM_WALLETS=100
+MODE=web
+FULCRUM_SERVER=10.0.0.15:60001
 NUM_ADDRESSES=10
 NETWORK=bip84,bip86
-OUTPUT_PATH=/data
+WEB_PORT=8080
 ```
 
----
-
-## Infinite Wallet Generation
-
-The wallet randomizer supports **infinite wallet generation mode**, which continuously generates and checks wallets until manually stopped.
-
-**To enable infinite mode:**
-- Direct usage: `python walletrandomizer.py --num-wallets -1 5 bip84 --server 127.0.0.1`
-- Docker/Compose: Set `NUM_WALLETS=-1` in your environment variables
-
-**Features in infinite mode:**
-- Wallets are generated continuously
-- Progress bar shows total wallets processed (not percentage)
-- Press CTRL+C to gracefully stop after the current wallet completes
-- Summary shows total wallets processed (not X/Y format)
-
-**Use cases:**
-- Continuous scanning for wallets with balances
-- Long-running discovery operations
-- Automated wallet generation pipelines
-
----
-
-## Logging
-
-- **`-v/--verbose`**: Enables verbose console logs.  
-- **`-L/--logfile`**: Writes logs to a rotating file (`.log`) in the script directory.
-  - If you combine both flags, you will get detailed console output **and** a log file with the same info.
-
-Log rotation is configured to rotate after the log file reaches ~250MB, keeping up to **40 backups**.
-
----
-
-## Example
-
-Below is an example of a full command, illustrating most options:
+Start the service:
 
 ```bash
-python walletrandomizer.py 3 2 bip44,bip49,bip84 \
-    --verbose \
-    --logfile \
-    --wordcount 24 \
-    --language italian \
-    --server 10.0.0.15 \
-    --port 60001 \
-    --output /tmp/wallets
+docker-compose up -d
 ```
 
-1. **Generates 3 wallets**.  
-2. **Each wallet** has 2 derived addresses per BIP type (BIP44, BIP49, BIP84).  
-3. **24-word** BIP39 mnemonics in **Italian**.  
-4. **Verbose output** to the console and **logs** to a timestamped `.log` file.
-5. **Fulcrum** server at `10.0.0.15` port `60001`.
-6. **Output** JSON files saved to `/tmp/wallets`.
+Access at `http://localhost:8080`
 
-Any wallet found to have a **non-zero balance** (across all addresses) will be exported to a randomly named `.json` file.
+### Example 2: CLI Mode - Generate 100 Wallets
 
-**Docker Compose example:**
 ```bash
-# Create .env file
-cat > .env << EOF
-FULCRUM_SERVER=10.0.0.15:60001
-NUM_WALLETS=3
-NUM_ADDRESSES=2
-NETWORK=bip44,bip49,bip84
-OUTPUT_PATH=/data
-EOF
+docker run --rm \
+  -e MODE=cli \
+  -e FULCRUM_SERVER=10.0.0.15:60001 \
+  -e NUM_WALLETS=100 \
+  -e NUM_ADDRESSES=10 \
+  -e NETWORK=bip44,bip84,bip86 \
+  -v $(pwd)/output:/data \
+  barrax63/walletrandomizer:latest
+```
 
-# Run with docker-compose
-docker-compose up
+### Example 3: Infinite Wallet Generation (CLI)
+
+Create a `.env` file:
+
+```bash
+MODE=cli
+FULCRUM_SERVER=192.168.1.100:50001
+NUM_WALLETS=-1
+NUM_ADDRESSES=5
+NETWORK=bip84
+```
+
+Start the service:
+
+```bash
+docker-compose up cli
+```
+
+Press CTRL+C to stop gracefully.
+
+### Example 4: Building and Running Locally
+
+```bash
+# Build the image
+docker build -t walletrandomizer:latest .
+
+# Run web interface
+docker run --rm \
+  -e MODE=web \
+  -e FULCRUM_SERVER=127.0.0.1:50001 \
+  -p 5000:5000 \
+  -v $(pwd)/data:/data \
+  walletrandomizer:latest
+
+# Run CLI
+docker run --rm \
+  -e MODE=cli \
+  -e FULCRUM_SERVER=127.0.0.1:50001 \
+  -e NUM_WALLETS=10 \
+  -e NUM_ADDRESSES=5 \
+  -e NETWORK=bip84 \
+  -v $(pwd)/data:/data \
+  walletrandomizer:latest
 ```
 
 ---
