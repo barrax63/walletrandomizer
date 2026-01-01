@@ -4,6 +4,14 @@
 # Builder stage: Install dependencies in a virtual environment
 FROM python:3.11-slim-bookworm AS builder
 
+LABEL org.opencontainers.image.title="walletrandomizer" \
+      org.opencontainers.image.description="Generates random BIP39 wallets, derives Bitcoin addresses under various derivation paths, and then queries their balances using a Fulcrum Electrum server." \
+      org.opencontainers.image.authors="Noah Nowak <nnowak@cryshell.com>" \
+      org.opencontainers.image.url="https://github.com/barrax63/walletrandomizer" \
+      org.opencontainers.image.source="https://github.com/barrax63/walletrandomizer" \
+      org.opencontainers.image.documentation="https://github.com/barrax63/walletrandomizer/blob/main/README.md" \
+      org.opencontainers.image.base.name="docker.io/library/python:3.11-slim-bookworm"
+
 # Set working directory
 WORKDIR /app
 
