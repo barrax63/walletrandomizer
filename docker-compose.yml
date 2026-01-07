@@ -1,4 +1,4 @@
-name: walletrandomizer-kit
+name: crypto-kit
 
 volumes:
   walletrandomizer_storage:
