@@ -35,6 +35,7 @@ BALANCE_API = os.getenv("BALANCE_API", "fulcrum").lower()  # fulcrum or blockcha
 FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
 BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
+BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY")  # Optional API key for higher rate limits
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -56,20 +57,22 @@ class BlockchainComClient:
     """
     Client for Blockchain.com API to check Bitcoin address balances.
     
-    Uses the public Blockchain.com API which doesn't require authentication
-    for basic balance queries.
+    Supports both authenticated (with API key) and unauthenticated modes.
+    Authenticated mode provides higher rate limits.
     """
     
-    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10):
+    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None):
         """
         Initialize Blockchain.com API client.
         
         Args:
             api_url (str): Base URL for Blockchain.com API
             timeout (int): Request timeout in seconds
+            api_key (str, optional): API key for authenticated requests with higher rate limits
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
+        self.api_key = api_key
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'WalletRandomizer/1.0'
@@ -90,20 +93,47 @@ class BlockchainComClient:
             dict | None: {"final_balance": int} with balance in satoshis, or None on error
         """
         try:
-            # Use the single address balance endpoint
-            url = f"{self.api_url}/q/addressbalance/{address}"
-            response = self.session.get(url, timeout=self.timeout)
-            
-            if response.status_code == 200:
-                # Response is just the balance in satoshis as plain text
-                balance_sat = int(response.text.strip())
-                return {"final_balance": balance_sat}
-            elif response.status_code == 500 and "No free outputs" in response.text:
-                # Address exists but has no balance (0 satoshis)
-                return {"final_balance": 0}
+            if self.api_key:
+                # Use authenticated endpoint with API key for higher rate limits
+                url = f"{self.api_url}/balance"
+                params = {
+                    "active": address,
+                    "api_code": self.api_key
+                }
+                response = self.session.get(url, params=params, timeout=self.timeout)
+                
+                if response.status_code == 200:
+                    # Response is JSON with address as key
+                    data = response.json()
+                    if address in data:
+                        return {"final_balance": data[address]["final_balance"]}
+                    else:
+                        logger.warning(f"Address {address} not found in API response")
+                        return None
+                elif response.status_code == 429:
+                    logger.warning(f"Blockchain.com API rate limit exceeded for {address}")
+                    return None
+                else:
+                    logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
+                    return None
             else:
-                logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
-                return None
+                # Use unauthenticated endpoint (strict rate limits)
+                url = f"{self.api_url}/q/addressbalance/{address}"
+                response = self.session.get(url, timeout=self.timeout)
+                
+                if response.status_code == 200:
+                    # Response is just the balance in satoshis as plain text
+                    balance_sat = int(response.text.strip())
+                    return {"final_balance": balance_sat}
+                elif response.status_code == 500 and "No free outputs" in response.text:
+                    # Address exists but has no balance (0 satoshis)
+                    return {"final_balance": 0}
+                elif response.status_code == 429:
+                    logger.warning(f"Blockchain.com API rate limit exceeded for {address}. Consider using an API key.")
+                    return None
+                else:
+                    logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
+                    return None
                 
         except requests.exceptions.Timeout:
             logger.warning(f"Blockchain.com API timeout for {address}")
@@ -124,8 +154,12 @@ def create_balance_checker():
         Balance checker client (FulcrumClient or BlockchainComClient)
     """
     if BALANCE_API == "blockchain":
-        logger.info(f"Using Blockchain.com API for balance checks: {BLOCKCHAIN_API_URL}")
-        return BlockchainComClient(BLOCKCHAIN_API_URL)
+        if BLOCKCHAIN_API_KEY:
+            logger.info(f"Using Blockchain.com API with authentication for balance checks: {BLOCKCHAIN_API_URL}")
+        else:
+            logger.info(f"Using Blockchain.com API (unauthenticated) for balance checks: {BLOCKCHAIN_API_URL}")
+            logger.warning("No BLOCKCHAIN_API_KEY set. Using unauthenticated API with strict rate limits. Consider setting BLOCKCHAIN_API_KEY for higher limits.")
+        return BlockchainComClient(BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY)
     else:
         logger.info(f"Using Fulcrum server for balance checks: {FULCRUM_HOST}:{FULCRUM_PORT}")
         return FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
@@ -156,6 +190,7 @@ generation_state = {
         "fulcrum_host": FULCRUM_HOST if BALANCE_API == "fulcrum" else None,
         "fulcrum_port": FULCRUM_PORT if BALANCE_API == "fulcrum" else None,
         "blockchain_api_url": BLOCKCHAIN_API_URL if BALANCE_API == "blockchain" else None,
+        "blockchain_api_authenticated": bool(BLOCKCHAIN_API_KEY) if BALANCE_API == "blockchain" else None,
     }
 }
 state_lock = threading.Lock()
@@ -385,7 +420,10 @@ if __name__ == "__main__":
     
     logger.info(f"Starting Wallet Randomizer Monitoring Interface on {host}:{port}")
     if BALANCE_API == "blockchain":
-        logger.info(f"Balance API: Blockchain.com ({BLOCKCHAIN_API_URL})")
+        if BLOCKCHAIN_API_KEY:
+            logger.info(f"Balance API: Blockchain.com (authenticated) ({BLOCKCHAIN_API_URL})")
+        else:
+            logger.info(f"Balance API: Blockchain.com (unauthenticated) ({BLOCKCHAIN_API_URL})")
     else:
         logger.info(f"Balance API: Fulcrum ({FULCRUM_HOST}:{FULCRUM_PORT})")
     logger.info(f"Configuration: {NUM_WALLETS if NUM_WALLETS != -1 else 'Infinite'} wallets, {NUM_ADDRESSES} addresses, {NETWORK}")

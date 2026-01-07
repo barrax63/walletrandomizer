@@ -213,19 +213,32 @@ FULCRUM_SERVER=192.168.1.100:50001
 - No setup required - works out of the box
 - No infrastructure needed
 - Good for occasional use or testing
+- API key support for higher rate limits
 
 **Cons:**
 - Slower than Fulcrum (HTTP requests)
-- Subject to rate limiting
+- Subject to rate limiting (especially without API key)
 - Depends on external service availability
 
 **Configuration:**
 ```bash
 BALANCE_API=blockchain
 BLOCKCHAIN_API_URL=https://blockchain.info  # Optional, uses this by default
+BLOCKCHAIN_API_KEY=your-api-key-here        # Optional, but recommended for higher rate limits
 ```
 
-**Note:** The Blockchain.com API is rate-limited. For intensive scanning (many wallets/addresses), Fulcrum is recommended.
+**Authenticated vs Unauthenticated Usage:**
+
+- **Without API Key (Unauthenticated):** Very strict rate limits - suitable only for testing or very low-volume scanning. You may encounter HTTP 429 errors even with just 1 worker.
+- **With API Key (Authenticated):** Higher rate limits - better for continuous scanning, though still slower than Fulcrum.
+
+**How to Obtain a Blockchain.com API Key:**
+
+1. Visit [https://www.blockchain.com/api](https://www.blockchain.com/api)
+2. Sign up for a free API key
+3. Add your API key to the `.env` file as `BLOCKCHAIN_API_KEY=your-api-key-here`
+
+**Note:** For intensive scanning (many wallets/addresses), Fulcrum is still recommended for best performance.
 
 ---
 
@@ -286,6 +299,9 @@ LANGUAGE=english
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `BLOCKCHAIN_API_URL` | Blockchain.com API base URL | No | `https://blockchain.info` |
+| `BLOCKCHAIN_API_KEY` | Blockchain.com API key for authenticated requests (higher rate limits) | No | None (unauthenticated) |
+
+**Note:** Without `BLOCKCHAIN_API_KEY`, the application uses unauthenticated API with very strict rate limits. It's highly recommended to obtain a free API key from [blockchain.com/api](https://www.blockchain.com/api) to avoid rate limiting errors.
 
 ### Wallet Generation Configuration
 
