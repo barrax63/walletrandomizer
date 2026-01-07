@@ -105,10 +105,10 @@ class BlockchainComClient:
                 if response.status_code == 200:
                     # Response is JSON with address as key
                     data = response.json()
-                    if address in data:
+                    if address in data and "final_balance" in data[address]:
                         return {"final_balance": data[address]["final_balance"]}
                     else:
-                        logger.warning(f"Address {address} not found in API response")
+                        logger.warning(f"Address {address} or final_balance field not found in API response")
                         return None
                 elif response.status_code == 429:
                     logger.warning(f"Blockchain.com API rate limit exceeded for {address}")
