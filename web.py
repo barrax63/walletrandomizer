@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import time
+import requests
 from datetime import datetime
 from collections import deque
 from flask import Flask, render_template, jsonify
@@ -30,8 +31,10 @@ logger = logging.getLogger("walletrandomizer-web")
 app = Flask(__name__)
 
 # Configuration from environment variables
+BALANCE_API = os.getenv("BALANCE_API", "fulcrum").lower()  # fulcrum or blockchain
 FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
+BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -43,6 +46,94 @@ OUTPUT_PATH = os.getenv("OUTPUT_PATH", "/data")
 MAX_RECENT_WALLETS = 10  # Number of recent wallets to keep in memory
 MNEMONIC_DISPLAY_LENGTH = 50  # Max characters to show for mnemonic in UI
 GENERATION_DELAY = 0.1  # Delay between wallet generations in seconds
+
+
+###############################################################################
+# BALANCE CHECKER ABSTRACTION
+###############################################################################
+
+class BlockchainComClient:
+    """
+    Client for Blockchain.com API to check Bitcoin address balances.
+    
+    Uses the public Blockchain.com API which doesn't require authentication
+    for basic balance queries.
+    """
+    
+    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10):
+        """
+        Initialize Blockchain.com API client.
+        
+        Args:
+            api_url (str): Base URL for Blockchain.com API
+            timeout (int): Request timeout in seconds
+        """
+        self.api_url = api_url.rstrip('/')
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'WalletRandomizer/1.0'
+        })
+    
+    def close(self):
+        """Close the session."""
+        self.session.close()
+    
+    def get_balance(self, address: str) -> dict | None:
+        """
+        Query balance for a specific Bitcoin address using Blockchain.com API.
+        
+        Args:
+            address (str): Bitcoin address
+            
+        Returns:
+            dict | None: {"final_balance": int} with balance in satoshis, or None on error
+        """
+        try:
+            # Use the single address balance endpoint
+            url = f"{self.api_url}/q/addressbalance/{address}"
+            response = self.session.get(url, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                # Response is just the balance in satoshis as plain text
+                balance_sat = int(response.text.strip())
+                return {"final_balance": balance_sat}
+            elif response.status_code == 500 and "No free outputs" in response.text:
+                # Address exists but has no balance (0 satoshis)
+                return {"final_balance": 0}
+            else:
+                logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
+                return None
+                
+        except requests.exceptions.Timeout:
+            logger.warning(f"Blockchain.com API timeout for {address}")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Blockchain.com API request error for {address}: {e}")
+            return None
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Blockchain.com API response parsing error for {address}: {e}")
+            return None
+
+
+def create_balance_checker():
+    """
+    Factory function to create the appropriate balance checker based on configuration.
+    
+    Returns:
+        Balance checker client (FulcrumClient or BlockchainComClient)
+    """
+    if BALANCE_API == "blockchain":
+        logger.info(f"Using Blockchain.com API for balance checks: {BLOCKCHAIN_API_URL}")
+        return BlockchainComClient(BLOCKCHAIN_API_URL)
+    else:
+        logger.info(f"Using Fulcrum server for balance checks: {FULCRUM_HOST}:{FULCRUM_PORT}")
+        return FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+
+
+###############################################################################
+# MONITORING STATE
+###############################################################################
 
 # Global state for monitoring
 generation_state = {
@@ -61,8 +152,10 @@ generation_state = {
         "network": NETWORK,
         "word_count": WORD_COUNT,
         "language": LANGUAGE,
-        "fulcrum_host": FULCRUM_HOST,
-        "fulcrum_port": FULCRUM_PORT,
+        "balance_api": BALANCE_API,
+        "fulcrum_host": FULCRUM_HOST if BALANCE_API == "fulcrum" else None,
+        "fulcrum_port": FULCRUM_PORT if BALANCE_API == "fulcrum" else None,
+        "blockchain_api_url": BLOCKCHAIN_API_URL if BALANCE_API == "blockchain" else None,
     }
 }
 state_lock = threading.Lock()
@@ -94,8 +187,8 @@ def wallet_generation_worker():
             start_time=datetime.now().isoformat()
         )
         
-        # Create Fulcrum client
-        fulcrum_client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+        # Create balance checker client (Fulcrum or Blockchain.com)
+        balance_client = create_balance_checker()
         
         wallet_count = 0
         infinite_mode = (NUM_WALLETS == -1)
@@ -140,7 +233,7 @@ def wallet_generation_worker():
                         
                         # Check balances for each address
                         for addr in derivation_info["addresses"]:
-                            balance_data = fulcrum_client.get_balance(addr)
+                            balance_data = balance_client.get_balance(addr)
                             
                             if balance_data is not None:
                                 final_balance_sat = balance_data["final_balance"]
@@ -195,7 +288,7 @@ def wallet_generation_worker():
                 time.sleep(GENERATION_DELAY)
                 
         finally:
-            fulcrum_client.close()
+            balance_client.close()
             
     except Exception as e:
         logger.exception("Error in wallet generation worker")
@@ -233,19 +326,34 @@ def get_status():
 def health_check():
     """Health check endpoint."""
     try:
-        # Test Fulcrum connection
-        client = FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
+        # Test balance API connection
+        client = create_balance_checker()
+        # Try a simple test (checking a known address with zero balance for quick response)
+        # Using a burn address that's known to exist
+        test_result = client.get_balance("1111111111111111111114oLvT2")  # Known burn address
         client.close()
-        fulcrum_status = "connected"
+        
+        if test_result is not None:
+            api_status = "connected"
+        else:
+            api_status = "error: unable to query balance"
     except Exception as e:
-        fulcrum_status = f"error: {str(e)}"
+        api_status = f"error: {str(e)}"
     
-    return jsonify({
+    response_data = {
         "status": "healthy",
-        "fulcrum": fulcrum_status,
-        "fulcrum_host": FULCRUM_HOST,
-        "fulcrum_port": FULCRUM_PORT,
-    })
+        "balance_api": BALANCE_API,
+        "api_status": api_status,
+    }
+    
+    # Add API-specific info
+    if BALANCE_API == "fulcrum":
+        response_data["fulcrum_host"] = FULCRUM_HOST
+        response_data["fulcrum_port"] = FULCRUM_PORT
+    elif BALANCE_API == "blockchain":
+        response_data["blockchain_api_url"] = BLOCKCHAIN_API_URL
+    
+    return jsonify(response_data)
 
 
 # Worker thread management

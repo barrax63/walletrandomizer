@@ -1,6 +1,6 @@
 # Wallet Randomizer
 
-**Wallet Randomizer** is a Docker-based application that continuously generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server.
+**Wallet Randomizer** is a Docker-based application that continuously generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using either a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server or the Blockchain.com public API.
 
 The application features a **real-time monitoring web interface** that displays live metrics and wallet generation progress.
 
@@ -11,10 +11,11 @@ The application features a **real-time monitoring web interface** that displays 
 2. [Requirements](#requirements)
 3. [Quick Start](#quick-start)
 4. [Web Monitoring Interface](#web-monitoring-interface)
-5. [Configuration](#configuration)
-6. [Environment Variables](#environment-variables)
-7. [Examples](#examples)
-8. [Author](#author)
+5. [Balance API Options](#balance-api-options)
+6. [Configuration](#configuration)
+7. [Environment Variables](#environment-variables)
+8. [Examples](#examples)
+9. [Author](#author)
 
 ---
 
@@ -40,8 +41,10 @@ The application features a **real-time monitoring web interface** that displays 
 - **Automatic Background Processing**  
   Wallet generation starts automatically based on .env configuration with no manual intervention required.
 
-- **Local Fulcrum Queries**  
-  Checks each derived address's final balance by querying a Fulcrum Electrum server (via TCP).
+- **Flexible Balance Checking**  
+  Choose between:
+  - **Fulcrum Electrum Server**: Fast, requires local setup
+  - **Blockchain.com API**: No setup required, public API (rate limited)
 
 - **Parallel Processing**  
   Utilizes concurrent processing for wallet derivation and balance checks, speeding up bulk address queries.
@@ -57,11 +60,15 @@ The application features a **real-time monitoring web interface** that displays 
 ## Requirements
 
 - **Docker** and **Docker Compose** installed on your system
-- Access to a **Fulcrum Electrum server** (default `127.0.0.1:50001`) running on your local machine or a reachable host/port
+- **Balance API** (choose one):
+  - **Fulcrum Electrum server** (default `127.0.0.1:50001`) running on your local machine or a reachable host/port, OR
+  - **Internet connection** for Blockchain.com public API (no setup required)
 
 ---
 
 ## Quick Start
+
+### Option 1: Using Blockchain.com API (Easiest)
 
 1. **Clone the repository:**
    ```bash
@@ -74,8 +81,38 @@ The application features a **real-time monitoring web interface** that displays 
    cp .env.example .env
    ```
 
-3. **Edit `.env` and configure your settings:**
+3. **Edit `.env` to use Blockchain.com API:**
    ```bash
+   BALANCE_API=blockchain
+   NUM_WALLETS=-1  # -1 for infinite generation
+   NUM_ADDRESSES=5
+   NETWORK=bip84
+   ```
+
+4. **Start the monitoring interface:**
+   ```bash
+   docker-compose up -d
+   ```
+
+5. **Access the monitoring dashboard:**
+   Open your browser and navigate to `http://localhost:5000`
+
+### Option 2: Using Fulcrum Server (Faster)
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/barrax63/walletrandomizer.git
+   cd walletrandomizer
+   ```
+
+2. **Create a `.env` file from the example:**
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Edit `.env` and configure your Fulcrum server:**
+   ```bash
+   BALANCE_API=fulcrum
    FULCRUM_SERVER=192.168.1.100:50001
    NUM_WALLETS=-1  # -1 for infinite generation
    NUM_ADDRESSES=5
@@ -148,6 +185,50 @@ docker cp $(docker-compose ps -q walletrandomizer):/data/<wallet-file>.json ./
 
 ---
 
+## Balance API Options
+
+The application supports two methods for checking Bitcoin address balances:
+
+### Fulcrum Electrum Server (Recommended for Speed)
+
+**Pros:**
+- Very fast balance queries
+- No rate limiting
+- Direct connection to Bitcoin network data
+- Better for continuous/high-volume scanning
+
+**Cons:**
+- Requires running a local Fulcrum server
+- Additional setup required
+
+**Configuration:**
+```bash
+BALANCE_API=fulcrum
+FULCRUM_SERVER=192.168.1.100:50001
+```
+
+### Blockchain.com Public API (Easiest Setup)
+
+**Pros:**
+- No setup required - works out of the box
+- No infrastructure needed
+- Good for occasional use or testing
+
+**Cons:**
+- Slower than Fulcrum (HTTP requests)
+- Subject to rate limiting
+- Depends on external service availability
+
+**Configuration:**
+```bash
+BALANCE_API=blockchain
+BLOCKCHAIN_API_URL=https://blockchain.info  # Optional, uses this by default
+```
+
+**Note:** The Blockchain.com API is rate-limited. For intensive scanning (many wallets/addresses), Fulcrum is recommended.
+
+---
+
 ## Configuration
 
 ### Creating a `.env` File
@@ -163,6 +244,9 @@ Edit the `.env` file with your preferred settings. See [Environment Variables](#
 ### Key Configuration Options
 
 ```bash
+# Choose balance API
+BALANCE_API=blockchain  # or "fulcrum"
+
 # Infinite wallet generation (recommended for continuous monitoring)
 NUM_WALLETS=-1
 
@@ -181,13 +265,27 @@ LANGUAGE=english
 
 ## Environment Variables
 
-### Fulcrum Server Configuration
+### Balance API Configuration
+
+| Variable | Description | Required | Default | Valid Values |
+|----------|-------------|----------|---------|--------------|
+| `BALANCE_API` | Balance checking method | No | `fulcrum` | `fulcrum`, `blockchain` |
+
+### Fulcrum Server Configuration (if BALANCE_API=fulcrum)
 
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
-| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes** | `192.168.1.100:50001` |
+| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes*** | `192.168.1.100:50001` |
 | `FULCRUM_HOST` | Fulcrum server host (alternative) | No | `192.168.1.100` |
 | `FULCRUM_PORT` | Fulcrum server port (alternative) | No | `50001` |
+
+\* Required only when `BALANCE_API=fulcrum`
+
+### Blockchain.com API Configuration (if BALANCE_API=blockchain)
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `BLOCKCHAIN_API_URL` | Blockchain.com API base URL | No | `https://blockchain.info` |
 
 ### Wallet Generation Configuration
 
