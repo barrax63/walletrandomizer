@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet Randomizer - Live Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='monitor.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-5VoJUMeF5VoJH7KpZ3e2F5xGwAVN3eVmMPRE5F5G8RxFhA8x/8yAVJ3aVwMIWs8Z" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div class="monitor-container">
+        <header class="monitor-header">
+            <h1>🔐 Wallet Randomizer - Live Monitor</h1>
+            <div class="status-badge" id="status-badge">
+                <span class="status-dot"></span>
+                <span class="status-text">Initializing...</span>
+            </div>
+        </header>
+
+        <main class="monitor-main">
+            <!-- Configuration Panel -->
+            <section class="config-section">
+                <h2>Configuration</h2>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <span class="config-label">Wallets:</span>
+                        <span class="config-value" id="config-wallets">-</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Addresses/Wallet:</span>
+                        <span class="config-value" id="config-addresses">-</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Network:</span>
+                        <span class="config-value" id="config-network">-</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Word Count:</span>
+                        <span class="config-value" id="config-words">-</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Language:</span>
+                        <span class="config-value" id="config-language">-</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Fulcrum:</span>
+                        <span class="config-value" id="config-fulcrum">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Statistics Dashboard -->
+            <section class="stats-section">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stat-wallets">0</div>
+                            <div class="stat-label">Wallets Processed</div>
+                        </div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stat-with-balance">0</div>
+                            <div class="stat-label">With Balance</div>
+                        </div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <div class="stat-icon">₿</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stat-total-btc">0.00000000</div>
+                            <div class="stat-label">Total BTC Found</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⏱️</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stat-runtime">00:00:00</div>
+                            <div class="stat-label">Runtime</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Live Performance Metrics -->
+            <section class="metrics-section">
+                <h2>Live Performance Metrics</h2>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Wallets/Second</h3>
+                        <canvas id="walletsChart"></canvas>
+                        <div class="chart-current">
+                            <span id="current-wallets-rate">0.00</span> wallets/s
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Addresses/Second</h3>
+                        <canvas id="addressesChart"></canvas>
+                        <div class="chart-current">
+                            <span id="current-addresses-rate">0.00</span> addresses/s
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Balance Checks/Second</h3>
+                        <canvas id="balanceChecksChart"></canvas>
+                        <div class="chart-current">
+                            <span id="current-balance-rate">0.00</span> checks/s
+                        </div>
+                    </div>
+                    <div class="chart-card highlight-chart">
+                        <h3>Cumulative Balance Found (BTC)</h3>
+                        <canvas id="balanceTotalChart"></canvas>
+                        <div class="chart-current">
+                            <span id="current-balance-total">0.00000000</span> BTC
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recent Wallets -->
+            <section class="recent-section">
+                <h2>Recent Wallets</h2>
+                <div id="recent-wallets" class="recent-wallets-container">
+                    <div class="empty-state">
+                        <p>Waiting for wallet generation to begin...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="monitor-footer">
+            <p>Wallet Randomizer Monitoring Interface | Auto-refresh every 1 second</p>
+            <p class="last-update">Last update: <span id="last-update">-</span></p>
+        </footer>
+    </div>
+
+    <script>
+        // Configuration constants
+        const CHART_DATA_POINTS = 60; // Number of data points to show in charts
+        
+        // Chart.js configuration
+        const chartConfig = {
+            type: 'line',
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 200
+                },
+                scales: {
+                    x: {
+                        display: false
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                elements: {
+                    line: {
+                        tension: 0.4,
+                        borderWidth: 2
+                    },
+                    point: {
+                        radius: 0
+                    }
+                }
+            }
+        };
+
+        // Initialize charts
+        const walletsChart = new Chart(
+            document.getElementById('walletsChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: Array(CHART_DATA_POINTS).fill(''),
+                    datasets: [{
+                        data: Array(CHART_DATA_POINTS).fill(0),
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true
+                    }]
+                }
+            }
+        );
+
+        const addressesChart = new Chart(
+            document.getElementById('addressesChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: Array(CHART_DATA_POINTS).fill(''),
+                    datasets: [{
+                        data: Array(CHART_DATA_POINTS).fill(0),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true
+                    }]
+                }
+            }
+        );
+
+        const balanceChecksChart = new Chart(
+            document.getElementById('balanceChecksChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: Array(CHART_DATA_POINTS).fill(''),
+                    datasets: [{
+                        data: Array(CHART_DATA_POINTS).fill(0),
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        fill: true
+                    }]
+                }
+            }
+        );
+
+        const balanceTotalChart = new Chart(
+            document.getElementById('balanceTotalChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: Array(CHART_DATA_POINTS).fill(''),
+                    datasets: [{
+                        data: Array(CHART_DATA_POINTS).fill(0),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        fill: true
+                    }]
+                },
+                options: {
+                    ...chartConfig.options,
+                    scales: {
+                        ...chartConfig.options.scales,
+                        y: {
+                            ...chartConfig.options.scales.y,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(8);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // State tracking for metrics
+        let previousState = {
+            wallets_processed: 0,
+            addresses_checked: 0,
+            timestamp: Date.now()
+        };
+
+        function updateChart(chart, newValue) {
+            chart.data.datasets[0].data.shift();
+            chart.data.datasets[0].data.push(newValue);
+            chart.update('none');
+        }
+
+        function formatDuration(startTime) {
+            if (!startTime) return '00:00:00';
+            
+            const start = new Date(startTime);
+            const now = new Date();
+            const diff = Math.floor((now - start) / 1000);
+            
+            const hours = Math.floor(diff / 3600);
+            const minutes = Math.floor((diff % 3600) / 60);
+            const seconds = diff % 60;
+            
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function updateMonitor() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update status badge
+                    const statusBadge = document.getElementById('status-badge');
+                    const statusText = statusBadge.querySelector('.status-text');
+                    const statusDot = statusBadge.querySelector('.status-dot');
+                    
+                    statusText.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+                    statusBadge.className = 'status-badge status-' + data.status;
+                    
+                    // Update configuration
+                    document.getElementById('config-wallets').textContent = 
+                        data.config.num_wallets === -1 ? 'Infinite' : data.config.num_wallets;
+                    document.getElementById('config-addresses').textContent = data.config.num_addresses;
+                    document.getElementById('config-network').textContent = data.config.network.toUpperCase();
+                    document.getElementById('config-words').textContent = data.config.word_count;
+                    document.getElementById('config-language').textContent = 
+                        data.config.language.charAt(0).toUpperCase() + data.config.language.slice(1);
+                    document.getElementById('config-fulcrum').textContent = 
+                        `${data.config.fulcrum_host}:${data.config.fulcrum_port}`;
+                    
+                    // Update statistics
+                    document.getElementById('stat-wallets').textContent = data.wallets_processed.toLocaleString();
+                    document.getElementById('stat-with-balance').textContent = data.wallets_with_balance.toLocaleString();
+                    document.getElementById('stat-total-btc').textContent = data.total_balance_btc.toFixed(8);
+                    document.getElementById('stat-runtime').textContent = formatDuration(data.start_time);
+                    
+                    // Calculate rates
+                    const now = Date.now();
+                    const timeDelta = (now - previousState.timestamp) / 1000; // seconds
+                    
+                    if (timeDelta > 0) {
+                        const walletsDelta = data.wallets_processed - previousState.wallets_processed;
+                        const walletsRate = walletsDelta / timeDelta;
+                        
+                        // Estimate addresses checked (wallets * addresses per wallet * BIP types count)
+                        const bipTypesCount = data.config.network.split(',').length;
+                        const totalAddresses = data.wallets_processed * data.config.num_addresses * bipTypesCount;
+                        const addressesDelta = totalAddresses - previousState.addresses_checked;
+                        const addressesRate = addressesDelta / timeDelta;
+                        const balanceChecksRate = addressesRate; // Same as addresses rate
+                        
+                        // Update current rate displays
+                        document.getElementById('current-wallets-rate').textContent = walletsRate.toFixed(2);
+                        document.getElementById('current-addresses-rate').textContent = addressesRate.toFixed(2);
+                        document.getElementById('current-balance-rate').textContent = balanceChecksRate.toFixed(2);
+                        document.getElementById('current-balance-total').textContent = data.total_balance_btc.toFixed(8);
+                        
+                        // Update charts
+                        updateChart(walletsChart, walletsRate);
+                        updateChart(addressesChart, addressesRate);
+                        updateChart(balanceChecksChart, balanceChecksRate);
+                        updateChart(balanceTotalChart, data.total_balance_btc);
+                        
+                        // Update previous state
+                        previousState = {
+                            wallets_processed: data.wallets_processed,
+                            addresses_checked: totalAddresses,
+                            timestamp: now
+                        };
+                    }
+                    
+                    // Update recent wallets
+                    const recentWalletsContainer = document.getElementById('recent-wallets');
+                    if (data.recent_wallets && data.recent_wallets.length > 0) {
+                        recentWalletsContainer.innerHTML = data.recent_wallets.reverse().map(wallet => {
+                            const hasBalance = wallet.total_balance > 0;
+                            return `
+                                <div class="wallet-item ${hasBalance ? 'has-balance' : ''}">
+                                    <div class="wallet-header">
+                                        <span class="wallet-number">#${wallet.wallet_number}</span>
+                                        <span class="wallet-time">${new Date(wallet.timestamp).toLocaleTimeString()}</span>
+                                        <span class="wallet-balance ${hasBalance ? 'balance-positive' : ''}">
+                                            ${wallet.total_balance.toFixed(8)} BTC
+                                        </span>
+                                    </div>
+                                    <div class="wallet-details">
+                                        <div class="wallet-mnemonic">${wallet.mnemonic}</div>
+                                        <div class="wallet-bips">
+                                            ${wallet.bip_types.map(bip => 
+                                                `<span class="bip-badge">${bip.type.toUpperCase()}: ${bip.addresses_checked} addr</span>`
+                                            ).join('')}
+                                        </div>
+                                    </div>
+                                    ${hasBalance ? '<div class="balance-indicator">💰 BALANCE FOUND!</div>' : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                    
+                    // Update last update time
+                    if (data.last_update) {
+                        document.getElementById('last-update').textContent = 
+                            new Date(data.last_update).toLocaleTimeString();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                    const statusBadge = document.getElementById('status-badge');
+                    statusBadge.className = 'status-badge status-error';
+                    statusBadge.querySelector('.status-text').textContent = 'Connection Error';
+                });
+        }
+
+        // Update every 1 second
+        updateMonitor();
+        setInterval(updateMonitor, 1000);
+    </script>
+</body>
+</html>

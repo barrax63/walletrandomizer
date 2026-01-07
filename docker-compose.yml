@@ -19,6 +19,7 @@ x-security-baseline: &security-baseline
     - ALL
 
 services:
+  # Web monitoring interface
   walletrandomizer:
     <<: *security-baseline
     build:
@@ -27,7 +28,6 @@ services:
     image: barrax63/walletrandomizer:latest
     networks: ['main']
     ports:
-      # Publish port 5000 (for potential future web interface)
       - "5000:5000"
     hostname: walletrandomizer
     init: true
@@ -36,13 +36,12 @@ services:
       - path: .env
         required: true
     volumes:
-      # Mount data volume for output files
       - walletrandomizer_storage:/data
       - /etc/localtime:/etc/localtime:ro
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '2.0'
           memory: 2G
         reservations:
           cpus: '0.5'

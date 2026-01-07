@@ -41,7 +41,10 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Copy application files
 COPY walletrandomizer.py .
+COPY web.py .
 COPY entrypoint.sh /entrypoint.sh
+COPY templates/ ./templates/
+COPY static/ ./static/
 
 # Make entrypoint executable
 RUN chmod +x /entrypoint.sh
