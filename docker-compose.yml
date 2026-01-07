@@ -38,6 +38,12 @@ services:
     volumes:
       - walletrandomizer_storage:/data
       - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:5000/api/health', timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
