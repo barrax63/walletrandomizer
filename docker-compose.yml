@@ -1,3 +1,5 @@
+name: walletrandomizer-kit
+
 volumes:
   walletrandomizer_storage:
 
@@ -27,8 +29,6 @@ services:
       dockerfile: Dockerfile
     image: barrax63/walletrandomizer:latest
     networks: ['main']
-    ports:
-      - "5000:5000"
     hostname: walletrandomizer
     init: true
     restart: unless-stopped
@@ -46,4 +46,42 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    logging: *default-logging
+
+  nginx:
+    <<: *security-baseline
+    image: nginx:stable-alpine
+    hostname: nginx
+    networks: ['main']
+    ports:
+      - "${NGINX_PORT:-8443}:8443"
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Berlin
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    depends_on:
+      walletrandomizer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://localhost:8443/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
     logging: *default-logging
