@@ -384,7 +384,10 @@ if __name__ == "__main__":
     host = os.getenv("WEB_HOST", "0.0.0.0")
     
     logger.info(f"Starting Wallet Randomizer Monitoring Interface on {host}:{port}")
-    logger.info(f"Fulcrum server: {FULCRUM_HOST}:{FULCRUM_PORT}")
+    if BALANCE_API == "blockchain":
+        logger.info(f"Balance API: Blockchain.com ({BLOCKCHAIN_API_URL})")
+    else:
+        logger.info(f"Balance API: Fulcrum ({FULCRUM_HOST}:{FULCRUM_PORT})")
     logger.info(f"Configuration: {NUM_WALLETS if NUM_WALLETS != -1 else 'Infinite'} wallets, {NUM_ADDRESSES} addresses, {NETWORK}")
     
     app.run(host=host, port=port, debug=False)

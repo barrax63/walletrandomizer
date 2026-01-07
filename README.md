@@ -275,11 +275,11 @@ LANGUAGE=english
 
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
-| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes*** | `192.168.1.100:50001` |
-| `FULCRUM_HOST` | Fulcrum server host (alternative) | No | `192.168.1.100` |
-| `FULCRUM_PORT` | Fulcrum server port (alternative) | No | `50001` |
+| `FULCRUM_SERVER` | Fulcrum server in format `host:port` (parsed into HOST and PORT) | **Yes*** | `192.168.1.100:50001` |
+| `FULCRUM_HOST` | Fulcrum server host (alternative to FULCRUM_SERVER) | No | `192.168.1.100` |
+| `FULCRUM_PORT` | Fulcrum server port (alternative to FULCRUM_SERVER) | No | `50001` |
 
-\* Required only when `BALANCE_API=fulcrum`
+\* Required only when `BALANCE_API=fulcrum`. You can use either `FULCRUM_SERVER` (which is automatically split into host and port) or specify `FULCRUM_HOST` and `FULCRUM_PORT` separately.
 
 ### Blockchain.com API Configuration (if BALANCE_API=blockchain)
 
