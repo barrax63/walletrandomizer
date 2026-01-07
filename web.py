@@ -159,7 +159,7 @@ def create_balance_checker():
         else:
             logger.info(f"Using Blockchain.com API (unauthenticated) for balance checks: {BLOCKCHAIN_API_URL}")
             logger.warning("No BLOCKCHAIN_API_KEY set. Using unauthenticated API with strict rate limits. Consider setting BLOCKCHAIN_API_KEY for higher limits.")
-        return BlockchainComClient(BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY)
+        return BlockchainComClient(api_url=BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY)
     else:
         logger.info(f"Using Fulcrum server for balance checks: {FULCRUM_HOST}:{FULCRUM_PORT}")
         return FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
