@@ -5,7 +5,7 @@
 FROM python:3.11-slim-bookworm AS builder
 
 LABEL org.opencontainers.image.title="walletrandomizer" \
-      org.opencontainers.image.description="Generates random BIP39 wallets, derives Bitcoin addresses under various derivation paths, and then queries their balances using a Fulcrum Electrum server." \
+      org.opencontainers.image.description="Generates random BIP39 wallets, derives Bitcoin addresses under various derivation paths, and then queries their balances" \
       org.opencontainers.image.authors="Noah Nowak <nnowak@cryshell.com>" \
       org.opencontainers.image.url="https://github.com/barrax63/walletrandomizer" \
       org.opencontainers.image.source="https://github.com/barrax63/walletrandomizer" \
@@ -15,10 +15,14 @@ LABEL org.opencontainers.image.title="walletrandomizer" \
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies if needed
+# Install system dependencies for building Python packages with C extensions
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
+    libc6-dev \
+    make \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
@@ -41,13 +45,13 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Copy application files
 COPY walletrandomizer.py .
-COPY web.py .
+COPY web.py . 
 COPY entrypoint.sh /entrypoint.sh
 COPY templates/ ./templates/
 COPY static/ ./static/
 
 # Make entrypoint executable
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint. sh
 
 # Create non-root user
 RUN groupadd -r appuser && \
