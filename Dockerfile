@@ -51,7 +51,7 @@ COPY templates/ ./templates/
 COPY static/ ./static/
 
 # Make entrypoint executable
-RUN chmod +x /entrypoint. sh
+RUN chmod +x /entrypoint.sh
 
 # Create non-root user
 RUN groupadd -r appuser && \
