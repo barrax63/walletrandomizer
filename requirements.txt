@@ -3,4 +3,4 @@ bip_utils
 base58
 tqdm
 flask
-gunicorn
+uvicorn

@@ -1,8 +1,8 @@
 # Wallet Randomizer
 
-**Wallet Randomizer** is a Docker-based application that generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server.
+**Wallet Randomizer** is a Docker-based application that continuously generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server.
 
-The application provides both a **web interface** and a **command-line interface**, both running in Docker containers.
+The application features a **real-time monitoring web interface** that displays live metrics and wallet generation progress.
 
 ---
 
@@ -10,13 +10,11 @@ The application provides both a **web interface** and a **command-line interface
 1. [Features](#features)
 2. [Requirements](#requirements)
 3. [Quick Start](#quick-start)
-4. [Web Interface](#web-interface)
-5. [Command-Line Interface](#command-line-interface)
-6. [Configuration](#configuration)
-7. [Docker Services](#docker-services)
-8. [Environment Variables](#environment-variables)
-9. [Examples](#examples)
-10. [Author](#author)
+4. [Web Monitoring Interface](#web-monitoring-interface)
+5. [Configuration](#configuration)
+6. [Environment Variables](#environment-variables)
+7. [Examples](#examples)
+8. [Author](#author)
 
 ---
 
@@ -32,8 +30,15 @@ The application provides both a **web interface** and a **command-line interface
   - BIP84: Native SegWit (P2WPKH)
   - BIP86: Taproot (P2TR)
 
-- **Web Interface**  
-  Modern, responsive web UI for easy wallet generation and balance checking.
+- **Real-Time Monitoring Interface**  
+  Live web dashboard with heart-monitor-style graphs showing:
+  - Wallets generated per second
+  - Addresses checked per second
+  - Balance checks per second
+  - Cumulative balance found
+
+- **Automatic Background Processing**  
+  Wallet generation starts automatically based on .env configuration with no manual intervention required.
 
 - **Local Fulcrum Queries**  
   Checks each derived address's final balance by querying a Fulcrum Electrum server (via TCP).
@@ -69,54 +74,65 @@ The application provides both a **web interface** and a **command-line interface
    cp .env.example .env
    ```
 
-3. **Edit `.env` and configure your Fulcrum server:**
+3. **Edit `.env` and configure your settings:**
    ```bash
    FULCRUM_SERVER=192.168.1.100:50001
-   MODE=web
+   NUM_WALLETS=-1  # -1 for infinite generation
+   NUM_ADDRESSES=5
+   NETWORK=bip84
    ```
 
-4. **Start the web interface:**
+4. **Start the monitoring interface:**
    ```bash
    docker-compose up -d
    ```
 
-5. **Access the web interface:**
+5. **Access the monitoring dashboard:**
    Open your browser and navigate to `http://localhost:5000`
+
+   The wallet generation process starts automatically in the background!
 
 ---
 
-## Web Interface
+## Web Monitoring Interface
 
-The web interface provides a user-friendly way to generate wallets and check balances.
+The monitoring interface provides real-time visualization of the wallet generation process.
 
-### Starting the Web Interface
+### Starting the Monitor
 
 ```bash
 docker-compose up -d
 ```
 
-The web server will be available at `http://localhost:5000` (or the port specified in your `.env` file).
+The monitoring dashboard will be available at `http://localhost:5000` (or the port specified in your `.env` file).
 
-### Features
+### Dashboard Features
 
-- **Landing Page:** Overview of the application and its features
-- **Wallet Generator:** Interactive form to configure and generate wallets
-- **Real-time Results:** View generated wallets, addresses, and balances
-- **Status Indicators:** Connection status and operation progress
-- **Responsive Design:** Works on desktop, tablet, and mobile devices
+- **Live Performance Metrics**
+  - Wallets/second graph (heart-monitor style)
+  - Addresses/second graph
+  - Balance checks/second graph
+  - Cumulative balance found graph
 
-### Web Interface Configuration
+- **Current Statistics**
+  - Total wallets processed
+  - Wallets with balance found
+  - Total BTC balance discovered
+  - Runtime duration
 
-Configure the web interface using environment variables in your `.env` file:
+- **Configuration Display**
+  - Shows active configuration parameters
+  - Fulcrum server connection status
 
-```bash
-MODE=web
-FULCRUM_SERVER=192.168.1.100:50001
-WEB_HOST=0.0.0.0
-WEB_PORT=5000
-WEB_WORKERS=4
-WEB_TIMEOUT=120
-```
+- **Recent Wallets Feed**
+  - Last 10 wallets generated
+  - Highlighted when balance found
+  - Truncated mnemonic display
+  - BIP types and addresses checked
+
+### Auto-Start Behavior
+
+When you start the container, wallet generation begins automatically based on your `.env` configuration. No manual trigger is required - just open the dashboard to monitor progress.
 
 ### Accessing Exported Wallets
 
@@ -124,47 +140,11 @@ Wallets with non-zero balances are automatically exported to JSON files in the D
 
 ```bash
 # List exported wallets
-docker-compose exec web ls -la /data
+docker-compose exec walletrandomizer ls -la /data
 
 # Copy a wallet file to your local machine
-docker cp $(docker-compose ps -q web):/data/<wallet-file>.json ./
+docker cp $(docker-compose ps -q walletrandomizer):/data/<wallet-file>.json ./
 ```
-
----
-
-## Command-Line Interface
-
-For advanced users or automated workflows, the CLI mode is available.
-
-### Running CLI Mode
-
-**Option 1: Using Docker Compose (uncomment the CLI service in docker-compose.yml)**
-
-Edit `docker-compose.yml` and uncomment the `cli` service, then:
-
-```bash
-docker-compose up cli
-```
-
-**Option 2: Using Docker directly**
-
-```bash
-docker run --rm \
-  -e MODE=cli \
-  -e FULCRUM_SERVER=192.168.1.100:50001 \
-  -e NUM_WALLETS=10 \
-  -e NUM_ADDRESSES=5 \
-  -e NETWORK=bip44,bip84 \
-  -e OUTPUT_PATH=/data \
-  -v $(pwd)/output:/data \
-  barrax63/walletrandomizer:latest
-```
-
-### CLI Features
-
-- **Infinite Wallet Generation:** Set `NUM_WALLETS=-1` for continuous wallet generation
-- **Multiple BIP Types:** Comma-separated list (e.g., `bip44,bip49,bip84,bip86`)
-- **Configurable Output:** Set output directory with `OUTPUT_PATH`
 
 ---
 
@@ -180,98 +160,72 @@ cp .env.example .env
 
 Edit the `.env` file with your preferred settings. See [Environment Variables](#environment-variables) for all available options.
 
----
+### Key Configuration Options
 
-## Docker Services
+```bash
+# Infinite wallet generation (recommended for continuous monitoring)
+NUM_WALLETS=-1
 
-### Web Service (Default)
+# Number of addresses to check per wallet
+NUM_ADDRESSES=5
 
-The web service provides the HTTP interface for wallet generation.
+# BIP derivation types (comma-separated)
+NETWORK=bip84,bip86
 
-```yaml
-services:
-  web:
-    image: barrax63/walletrandomizer:latest
-    ports:
-      - "5000:5000"
-    environment:
-      - MODE=web
-      - FULCRUM_SERVER=127.0.0.1:50001
-    volumes:
-      - walletrandomizer_storage:/data
-```
-
-### CLI Service (Optional)
-
-The CLI service can run alongside or instead of the web service for automated workflows.
-
-```yaml
-services:
-  cli:
-    image: barrax63/walletrandomizer:latest
-    environment:
-      - MODE=cli
-      - FULCRUM_SERVER=127.0.0.1:50001
-      - NUM_WALLETS=10
-      - NUM_ADDRESSES=5
-      - NETWORK=bip84
-    volumes:
-      - walletrandomizer_storage:/data
+# Mnemonic settings
+WORD_COUNT=12
+LANGUAGE=english
 ```
 
 ---
 
 ## Environment Variables
 
-### Mode Configuration
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `MODE` | Run mode: `web` or `cli` | `cli` | No |
-
 ### Fulcrum Server Configuration
 
 | Variable | Description | Required | Example |
 |----------|-------------|----------|---------|
-| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes*** | `192.168.1.100:50001` |
-| `FULCRUM_HOST` | Fulcrum server host (alternative to FULCRUM_SERVER) | No | `192.168.1.100` |
-| `FULCRUM_PORT` | Fulcrum server port (alternative to FULCRUM_SERVER) | No | `50001` |
-
-\* Required for CLI mode. For web mode, you can use either `FULCRUM_SERVER` or both `FULCRUM_HOST` and `FULCRUM_PORT`.
+| `FULCRUM_SERVER` | Fulcrum server in format `host:port` | **Yes** | `192.168.1.100:50001` |
+| `FULCRUM_HOST` | Fulcrum server host (alternative) | No | `192.168.1.100` |
+| `FULCRUM_PORT` | Fulcrum server port (alternative) | No | `50001` |
 
 ### Wallet Generation Configuration
 
 | Variable | Description | Default | Valid Values |
 |----------|-------------|---------|--------------|
-| `NUM_WALLETS` | Number of wallets to generate (CLI: -1 for infinite) | `10` (CLI), `1` (web) | ≥1 or -1 |
+| `NUM_WALLETS` | Number of wallets to generate (-1 for infinite) | `-1` | ≥1 or -1 |
 | `NUM_ADDRESSES` | Number of addresses per wallet | `5` | ≥1 |
 | `NETWORK` | Comma-separated BIP types | `bip84` | `bip44,bip49,bip84,bip86` |
+| `WORD_COUNT` | Mnemonic word count | `12` | `12` or `24` |
+| `LANGUAGE` | Mnemonic language | `english` | See below |
 | `OUTPUT_PATH` | Output directory for JSON files | `/data` | Any valid path |
-| `FORMAT` | Output format | `json` | `json` |
 
-### Web Server Configuration (web mode only)
+**Supported Languages:** `english`, `french`, `italian`, `spanish`, `korean`, `chinese_simplified`, `chinese_traditional`
+
+### Web Server Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WEB_HOST` | Web server host | `0.0.0.0` |
 | `WEB_PORT` | Web server port | `5000` |
-| `WEB_WORKERS` | Number of gunicorn workers | `4` |
+| `WEB_WORKERS` | Number of uvicorn workers | `4` |
 | `WEB_TIMEOUT` | Request timeout in seconds | `120` |
 
 ---
 
 ## Examples
 
-### Example 1: Web Interface with Custom Configuration
+### Example 1: Infinite Generation with Multiple BIP Types
 
 Create a `.env` file:
 
 ```bash
-MODE=web
 FULCRUM_SERVER=10.0.0.15:60001
+NUM_WALLETS=-1
 NUM_ADDRESSES=10
 NETWORK=bip84,bip86
-WEB_PORT=8080
+WORD_COUNT=12
+LANGUAGE=english
 ```
 
 Start the service:
@@ -280,65 +234,39 @@ Start the service:
 docker-compose up -d
 ```
 
-Access at `http://localhost:8080`
+Access the monitoring dashboard at `http://localhost:5000` to watch the live generation process.
 
-### Example 2: CLI Mode - Generate 100 Wallets
-
-```bash
-docker run --rm \
-  -e MODE=cli \
-  -e FULCRUM_SERVER=10.0.0.15:60001 \
-  -e NUM_WALLETS=100 \
-  -e NUM_ADDRESSES=10 \
-  -e NETWORK=bip44,bip84,bip86 \
-  -v $(pwd)/output:/data \
-  barrax63/walletrandomizer:latest
-```
-
-### Example 3: Infinite Wallet Generation (CLI)
-
-Create a `.env` file:
+### Example 2: Limited Generation with All BIP Types
 
 ```bash
-MODE=cli
 FULCRUM_SERVER=192.168.1.100:50001
-NUM_WALLETS=-1
+NUM_WALLETS=1000
 NUM_ADDRESSES=5
-NETWORK=bip84
+NETWORK=bip44,bip49,bip84,bip86
+WORD_COUNT=24
+LANGUAGE=english
 ```
 
-Start the service:
+This will generate exactly 1000 wallets with 24-word mnemonics, checking all BIP types.
 
-```bash
-docker-compose up cli
-```
-
-Press CTRL+C to stop gracefully.
-
-### Example 4: Building and Running Locally
+### Example 3: Building and Running Locally
 
 ```bash
 # Build the image
 docker build -t walletrandomizer:latest .
 
-# Run web interface
+# Run with environment variables
 docker run --rm \
-  -e MODE=web \
   -e FULCRUM_SERVER=127.0.0.1:50001 \
+  -e NUM_WALLETS=-1 \
+  -e NUM_ADDRESSES=5 \
+  -e NETWORK=bip84 \
   -p 5000:5000 \
   -v $(pwd)/data:/data \
   walletrandomizer:latest
-
-# Run CLI
-docker run --rm \
-  -e MODE=cli \
-  -e FULCRUM_SERVER=127.0.0.1:50001 \
-  -e NUM_WALLETS=10 \
-  -e NUM_ADDRESSES=5 \
-  -e NETWORK=bip84 \
-  -v $(pwd)/data:/data \
-  walletrandomizer:latest
 ```
+
+Access the dashboard at `http://localhost:5000`
 
 ---
 
