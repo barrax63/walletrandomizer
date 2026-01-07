@@ -39,6 +39,11 @@ WORD_COUNT = int(os.getenv("WORD_COUNT", "12"))
 LANGUAGE = os.getenv("LANGUAGE", "english")
 OUTPUT_PATH = os.getenv("OUTPUT_PATH", "/data")
 
+# Monitoring constants
+MAX_RECENT_WALLETS = 10  # Number of recent wallets to keep in memory
+MNEMONIC_DISPLAY_LENGTH = 50  # Max characters to show for mnemonic in UI
+GENERATION_DELAY = 0.1  # Delay between wallet generations in seconds
+
 # Global state for monitoring
 generation_state = {
     "status": "initializing",  # initializing, running, paused, stopped, error
@@ -49,7 +54,7 @@ generation_state = {
     "start_time": None,
     "last_update": None,
     "error": None,
-    "recent_wallets": deque(maxlen=10),  # Keep last 10 wallets
+    "recent_wallets": deque(maxlen=MAX_RECENT_WALLETS),  # Keep last N wallets
     "config": {
         "num_wallets": NUM_WALLETS,
         "num_addresses": NUM_ADDRESSES,
@@ -109,7 +114,7 @@ def wallet_generation_worker():
                 
                 wallet_info = {
                     "wallet_number": wallet_count,
-                    "mnemonic": mnemonic[:50] + "..." if len(mnemonic) > 50 else mnemonic,  # Truncate for display
+                    "mnemonic": mnemonic[:MNEMONIC_DISPLAY_LENGTH] + "..." if len(mnemonic) > MNEMONIC_DISPLAY_LENGTH else mnemonic,  # Truncate for display
                     "timestamp": datetime.now().isoformat(),
                     "bip_types": [],
                     "total_balance": 0.0
@@ -187,7 +192,7 @@ def wallet_generation_worker():
                         logger.error(f"Error exporting wallet: {e}")
                 
                 # Small delay to prevent overwhelming the system
-                time.sleep(0.1)
+                time.sleep(GENERATION_DELAY)
                 
         finally:
             fulcrum_client.close()
@@ -243,12 +248,20 @@ def health_check():
     })
 
 
-# Start background worker thread
+# Worker thread management
+_worker_started = False
+_worker_lock = threading.Lock()
+
+
 def start_generation_worker():
-    """Start the background wallet generation thread."""
-    worker_thread = threading.Thread(target=wallet_generation_worker, daemon=True)
-    worker_thread.start()
-    logger.info("Background wallet generation worker started")
+    """Start the background wallet generation thread (singleton)."""
+    global _worker_started
+    with _worker_lock:
+        if not _worker_started:
+            worker_thread = threading.Thread(target=wallet_generation_worker, daemon=True)
+            worker_thread.start()
+            _worker_started = True
+            logger.info("Background wallet generation worker started")
 
 
 if __name__ == "__main__":
@@ -268,5 +281,6 @@ if __name__ == "__main__":
     
     app.run(host=host, port=port, debug=False)
 else:
-    # When running with uvicorn, start the worker when the module is loaded
+    # When running with uvicorn, start the worker once when the module is loaded
+    # Use singleton pattern to prevent multiple workers
     start_generation_worker()

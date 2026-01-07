@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wallet Randomizer - Live Monitor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='monitor.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-5VoJUMeF5VoJH7KpZ3e2F5xGwAVN3eVmMPRE5F5G8RxFhA8x/8yAVJ3aVwMIWs8Z" crossorigin="anonymous"></script>
 </head>
 <body>
     <div class="monitor-container">
@@ -136,6 +136,9 @@
     </div>
 
     <script>
+        // Configuration constants
+        const CHART_DATA_POINTS = 60; // Number of data points to show in charts
+        
         // Chart.js configuration
         const chartConfig = {
             type: 'line',
@@ -179,9 +182,9 @@
             {
                 ...chartConfig,
                 data: {
-                    labels: Array(60).fill(''),
+                    labels: Array(CHART_DATA_POINTS).fill(''),
                     datasets: [{
-                        data: Array(60).fill(0),
+                        data: Array(CHART_DATA_POINTS).fill(0),
                         borderColor: '#2563eb',
                         backgroundColor: 'rgba(37, 99, 235, 0.1)',
                         fill: true
@@ -195,9 +198,9 @@
             {
                 ...chartConfig,
                 data: {
-                    labels: Array(60).fill(''),
+                    labels: Array(CHART_DATA_POINTS).fill(''),
                     datasets: [{
-                        data: Array(60).fill(0),
+                        data: Array(CHART_DATA_POINTS).fill(0),
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true
@@ -211,9 +214,9 @@
             {
                 ...chartConfig,
                 data: {
-                    labels: Array(60).fill(''),
+                    labels: Array(CHART_DATA_POINTS).fill(''),
                     datasets: [{
-                        data: Array(60).fill(0),
+                        data: Array(CHART_DATA_POINTS).fill(0),
                         borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245, 158, 11, 0.1)',
                         fill: true
@@ -227,9 +230,9 @@
             {
                 ...chartConfig,
                 data: {
-                    labels: Array(60).fill(''),
+                    labels: Array(CHART_DATA_POINTS).fill(''),
                     datasets: [{
-                        data: Array(60).fill(0),
+                        data: Array(CHART_DATA_POINTS).fill(0),
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.2)',
                         fill: true
