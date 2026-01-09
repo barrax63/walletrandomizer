@@ -16,6 +16,7 @@ import requests
 from datetime import datetime
 from collections import deque
 from flask import Flask, render_template, jsonify
+from asgiref.wsgi import WsgiToAsgi
 from walletrandomizer import (
     generate_random_mnemonic,
     derive_addresses,
@@ -28,7 +29,7 @@ from walletrandomizer import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("walletrandomizer-web")
 
-app = Flask(__name__)
+flask_app = Flask(__name__)
 
 # Configuration from environment variables
 BALANCE_API = os.getenv("BALANCE_API", "fulcrum").lower()  # fulcrum or blockchain
@@ -36,6 +37,7 @@ FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
 BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
 BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY")  # Optional API key for higher rate limits
+BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "1.1"))  # Delay in seconds between API calls (default 1.1s for unauthenticated)
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -61,7 +63,7 @@ class BlockchainComClient:
     Authenticated mode provides higher rate limits.
     """
     
-    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None):
+    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 1.1):
         """
         Initialize Blockchain.com API client.
         
@@ -69,14 +71,26 @@ class BlockchainComClient:
             api_url (str): Base URL for Blockchain.com API
             timeout (int): Request timeout in seconds
             api_key (str, optional): API key for authenticated requests with higher rate limits
+            request_delay (float): Delay in seconds between API requests for rate limiting (default 1.1s for unauthenticated API)
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
         self.api_key = api_key
+        self.request_delay = request_delay
+        self._last_request_time = 0.0
+        self._rate_limit_lock = threading.Lock()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'WalletRandomizer/1.0'
         })
+    
+    def _rate_limit(self):
+        """Apply rate limiting between API requests. Thread-safe."""
+        with self._rate_limit_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self.request_delay:
+                time.sleep(self.request_delay - elapsed)
+            self._last_request_time = time.time()
     
     def close(self):
         """Close the session."""
@@ -92,6 +106,9 @@ class BlockchainComClient:
         Returns:
             dict | None: {"final_balance": int} with balance in satoshis, or None on error
         """
+        # Apply rate limiting before making request
+        self._rate_limit()
+        
         try:
             if self.api_key:
                 # Use authenticated endpoint with API key for higher rate limits
@@ -156,10 +173,12 @@ def create_balance_checker():
     if BALANCE_API == "blockchain":
         if BLOCKCHAIN_API_KEY:
             logger.info(f"Using Blockchain.com API with authentication for balance checks: {BLOCKCHAIN_API_URL}")
+            logger.info(f"Rate limit: {BLOCKCHAIN_RATE_LIMIT}s between requests")
         else:
             logger.info(f"Using Blockchain.com API (unauthenticated) for balance checks: {BLOCKCHAIN_API_URL}")
+            logger.info(f"Rate limit: {BLOCKCHAIN_RATE_LIMIT}s between requests")
             logger.warning("No BLOCKCHAIN_API_KEY set. Using unauthenticated API with strict rate limits. Consider setting BLOCKCHAIN_API_KEY for higher limits.")
-        return BlockchainComClient(api_url=BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY)
+        return BlockchainComClient(api_url=BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY, request_delay=BLOCKCHAIN_RATE_LIMIT)
     else:
         logger.info(f"Using Fulcrum server for balance checks: {FULCRUM_HOST}:{FULCRUM_PORT}")
         return FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
@@ -333,13 +352,13 @@ def wallet_generation_worker():
         )
 
 
-@app.route("/")
+@flask_app.route("/")
 def index():
     """Main monitoring page."""
     return render_template("monitor.html")
 
 
-@app.route("/api/status", methods=["GET"])
+@flask_app.route("/api/status", methods=["GET"])
 def get_status():
     """Get current generation status."""
     with state_lock:
@@ -357,7 +376,7 @@ def get_status():
         })
 
 
-@app.route("/api/health", methods=["GET"])
+@flask_app.route("/api/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
     try:
@@ -407,6 +426,11 @@ def start_generation_worker():
             logger.info("Background wallet generation worker started")
 
 
+# Create ASGI-compatible app for uvicorn
+# This properly wraps Flask's WSGI interface for ASGI servers
+app = WsgiToAsgi(flask_app)
+
+
 if __name__ == "__main__":
     # Check dependencies at startup
     _check_dependencies()
@@ -414,7 +438,7 @@ if __name__ == "__main__":
     # Start background worker
     start_generation_worker()
     
-    # Run the Flask app
+    # Run the Flask app directly (not through uvicorn)
     port = int(os.getenv("WEB_PORT", "5000"))
     host = os.getenv("WEB_HOST", "0.0.0.0")
     
@@ -428,7 +452,7 @@ if __name__ == "__main__":
         logger.info(f"Balance API: Fulcrum ({FULCRUM_HOST}:{FULCRUM_PORT})")
     logger.info(f"Configuration: {NUM_WALLETS if NUM_WALLETS != -1 else 'Infinite'} wallets, {NUM_ADDRESSES} addresses, {NETWORK}")
     
-    app.run(host=host, port=port, debug=False)
+    flask_app.run(host=host, port=port, debug=False)
 else:
     # When running with uvicorn, start the worker once when the module is loaded
     # Use singleton pattern to prevent multiple workers
