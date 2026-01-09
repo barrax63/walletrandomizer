@@ -37,7 +37,7 @@ FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
 BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
 BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY")  # Optional API key for higher rate limits
-BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "10.0"))  # Delay in seconds between API calls (default 10s for unauthenticated)
+BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "1.1"))  # Delay in seconds between API calls (default 1.1s for unauthenticated)
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -63,7 +63,7 @@ class BlockchainComClient:
     Authenticated mode provides higher rate limits.
     """
     
-    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 10.0):
+    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 1.1):
         """
         Initialize Blockchain.com API client.
         
@@ -71,7 +71,7 @@ class BlockchainComClient:
             api_url (str): Base URL for Blockchain.com API
             timeout (int): Request timeout in seconds
             api_key (str, optional): API key for authenticated requests with higher rate limits
-            request_delay (float): Delay in seconds between API requests for rate limiting (default 10.0s for unauthenticated API)
+            request_delay (float): Delay in seconds between API requests for rate limiting (default 1.1s for unauthenticated API)
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
