@@ -344,12 +344,50 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    # cert = C:\Fulcrum\server.crt
    # key = C:\Fulcrum\server.key
    
-   # Performance tuning (adjust based on your system)
+   # Performance tuning (see recommendations below)
    # db_max_open_files = 400
    # worker_threads = 4
+   # fast_sync = 1
    ```
 
    **Important:** The `rpcuser` and `rpcpassword` must match your `bitcoin.conf` settings. Replace `CHANGE_THIS_USERNAME` and `CHANGE_THIS_PASSWORD` with the same credentials you used in `bitcoin.conf`.
+
+   **Performance Tuning Recommendations:**
+
+   | Setting | Description | Recommended Values |
+   |---------|-------------|-------------------|
+   | `db_max_open_files` | Maximum number of database file handles. Higher values improve performance but use more RAM. | **Low-end (8GB RAM):** 200-400<br>**Mid-range (16GB RAM):** 400-800<br>**High-end (32GB+ RAM):** 1000-2000 |
+   | `worker_threads` | Number of threads for processing client requests. Should generally match or be slightly less than your CPU core count. | **4-core CPU:** 4<br>**6-core CPU:** 6<br>**8+ core CPU:** 8-12 |
+   | `fast_sync` | Enables faster initial sync at the cost of higher memory usage. Set to `0` on systems with limited RAM. | **8GB RAM:** 0 (disabled)<br>**16GB+ RAM:** 1 (enabled) |
+   | `db_mem` | Database cache size in MB. Higher values speed up initial sync and queries. | **8GB RAM:** 256-512<br>**16GB RAM:** 1024-2048<br>**32GB+ RAM:** 2048-4096 |
+
+   **Example configurations:**
+
+   *Low-end system (8GB RAM, 4-core CPU):*
+   ```ini
+   db_max_open_files = 300
+   worker_threads = 4
+   fast_sync = 0
+   db_mem = 512
+   ```
+
+   *Mid-range system (16GB RAM, 6-8 core CPU):*
+   ```ini
+   db_max_open_files = 600
+   worker_threads = 6
+   fast_sync = 1
+   db_mem = 1536
+   ```
+
+   *High-end system (32GB+ RAM, 8+ core CPU):*
+   ```ini
+   db_max_open_files = 1500
+   worker_threads = 10
+   fast_sync = 1
+   db_mem = 4096
+   ```
+
+   **Note:** After changing these settings, restart Fulcrum for them to take effect. Monitor your system's memory usage during initial sync and adjust values if needed.
 
 4. **Create the data directory:**
    
