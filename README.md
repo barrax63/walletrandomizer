@@ -274,9 +274,9 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
 
    Before starting the initial sync, create or edit the `bitcoin.conf` file:
    
-   - Navigate to your Bitcoin data directory (default: `%APPDATA%\Bitcoin\`)
-   - Create a file named `bitcoin.conf` if it doesn't exist
-   - Add the following configuration:
+   - Open Bitcoin Core and navigate to the options
+   - choose to open the config file
+   - enter the following settings
 
    ```ini
    # Server mode (required for Fulcrum)
