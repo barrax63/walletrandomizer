@@ -121,7 +121,7 @@ class BlockcypherClient:
                 if self.api_token:
                     params["token"] = self.api_token
                 
-                response = self.session.get(url, params=params if params else None, timeout=self.timeout)
+                response = self.session.get(url, params=params, timeout=self.timeout)
                 
                 if response.status_code == 200:
                     # Response is JSON with final_balance field
