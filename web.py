@@ -66,6 +66,7 @@ class BlockcypherClient:
     # Retry configuration for rate limiting
     MAX_RETRIES = 3
     BACKOFF_MULTIPLIER = 2
+    INITIAL_BACKOFF = 1.0  # Initial backoff delay in seconds for rate limit retries
     
     def __init__(self, api_url: str = "https://api.blockcypher.com/v1/btc/main", timeout: int = 10, api_token: str = None, request_delay: float = 0.5):
         """
@@ -81,7 +82,9 @@ class BlockcypherClient:
         self.timeout = timeout
         self.api_token = api_token
         self.request_delay = request_delay
-        self._last_request_time = time.time()
+        # Initialize to 0 so the first request doesn't have artificial delay
+        # Rate limiting will be applied based on actual request timing
+        self._last_request_time = 0
         self._rate_limit_lock = threading.Lock()
         self.session = requests.Session()
         self.session.headers.update({
@@ -99,6 +102,33 @@ class BlockcypherClient:
     def close(self):
         """Close the session."""
         self.session.close()
+    
+    def _get_backoff_delay(self, attempt: int, response=None) -> float:
+        """
+        Calculate backoff delay for retry attempts.
+        
+        Checks for Retry-After header first, then falls back to exponential backoff.
+        
+        Args:
+            attempt (int): Current retry attempt number (0-indexed)
+            response: Optional HTTP response to check for Retry-After header
+            
+        Returns:
+            float: Delay in seconds before next retry
+        """
+        # Check for Retry-After header (common for 429 responses)
+        # Note: Only numeric seconds format is supported; HTTP-date format falls back to exponential backoff
+        if response is not None:
+            retry_after = response.headers.get('Retry-After')
+            if retry_after:
+                try:
+                    return float(retry_after)
+                except ValueError:
+                    # Retry-After might be an HTTP-date string, fall through to default backoff
+                    pass
+        
+        # Exponential backoff: INITIAL_BACKOFF * (BACKOFF_MULTIPLIER ^ attempt)
+        return self.INITIAL_BACKOFF * (self.BACKOFF_MULTIPLIER ** attempt)
     
     def get_balance(self, address: str) -> dict | None:
         """
@@ -126,6 +156,30 @@ class BlockcypherClient:
                 if response.status_code == 200:
                     # Response is JSON with final_balance field
                     data = response.json()
+                    
+                    # Check for error field in 200 response (Blockcypher quirk)
+                    # Blockcypher may return HTTP 200 with an error in the JSON body
+                    if "error" in data:
+                        error_msg = str(data.get("error", "")).lower()
+                        # Check if this is a rate limit error using known Blockcypher error patterns
+                        # Known patterns: "API calls limits have been reached", "rate limit exceeded"
+                        rate_limit_patterns = ["limit", "too many requests", "quota exceeded"]
+                        is_rate_limit = any(pattern in error_msg for pattern in rate_limit_patterns)
+                        if is_rate_limit:
+                            # Treat as rate limit - apply backoff and retry
+                            backoff_delay = self._get_backoff_delay(attempt, response)
+                            if attempt < self.MAX_RETRIES - 1:
+                                logger.debug(f"Rate limited (200 with error) for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                                time.sleep(backoff_delay)
+                                continue
+                            else:
+                                logger.warning(f"Blockcypher API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts")
+                                return None
+                        else:
+                            # Other error in 200 response
+                            logger.warning(f"Blockcypher API error for {address}: {data.get('error')}")
+                            return None
+                    
                     if "final_balance" in data:
                         return {"final_balance": data["final_balance"]}
                     else:
@@ -133,7 +187,7 @@ class BlockcypherClient:
                         return None
                 elif response.status_code == 429:
                     # Rate limited - apply exponential backoff and retry
-                    backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
+                    backoff_delay = self._get_backoff_delay(attempt, response)
                     if attempt < self.MAX_RETRIES - 1:
                         logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
                         time.sleep(backoff_delay)
