@@ -32,12 +32,12 @@ logger = logging.getLogger("walletrandomizer-web")
 flask_app = Flask(__name__)
 
 # Configuration from environment variables
-BALANCE_API = os.getenv("BALANCE_API", "fulcrum").lower()  # fulcrum or blockchain
+BALANCE_API = os.getenv("BALANCE_API", "fulcrum").lower()  # fulcrum or blockcypher
 FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
-BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
-BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY")  # Optional API key for higher rate limits
-BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "5.0"))  # Delay in seconds between API calls (default 5s for unauthenticated)
+BLOCKCYPHER_API_URL = os.getenv("BLOCKCYPHER_API_URL", "https://api.blockcypher.com/v1/btc/main")
+BLOCKCYPHER_API_TOKEN = os.getenv("BLOCKCYPHER_API_TOKEN")  # Optional API token for higher rate limits
+BLOCKCYPHER_RATE_LIMIT = float(os.getenv("BLOCKCYPHER_RATE_LIMIT", "0.5"))  # Delay in seconds between API calls (default 0.5s)
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -55,11 +55,11 @@ GENERATION_DELAY = 0.1  # Delay between wallet generations in seconds
 # BALANCE CHECKER ABSTRACTION
 ###############################################################################
 
-class BlockchainComClient:
+class BlockcypherClient:
     """
-    Client for Blockchain.com API to check Bitcoin address balances.
+    Client for Blockcypher API to check Bitcoin address balances.
     
-    Supports both authenticated (with API key) and unauthenticated modes.
+    Supports both authenticated (with API token) and unauthenticated modes.
     Authenticated mode provides higher rate limits.
     """
     
@@ -67,19 +67,19 @@ class BlockchainComClient:
     MAX_RETRIES = 3
     BACKOFF_MULTIPLIER = 2
     
-    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 1.1):
+    def __init__(self, api_url: str = "https://api.blockcypher.com/v1/btc/main", timeout: int = 10, api_token: str = None, request_delay: float = 0.5):
         """
-        Initialize Blockchain.com API client.
+        Initialize Blockcypher API client.
         
         Args:
-            api_url (str): Base URL for Blockchain.com API
+            api_url (str): Base URL for Blockcypher API
             timeout (int): Request timeout in seconds
-            api_key (str, optional): API key for authenticated requests with higher rate limits
-            request_delay (float): Delay in seconds between API requests for rate limiting (default 1.1s for unauthenticated API)
+            api_token (str, optional): API token for authenticated requests with higher rate limits
+            request_delay (float): Delay in seconds between API requests for rate limiting (default 0.5s)
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
-        self.api_key = api_key
+        self.api_token = api_token
         self.request_delay = request_delay
         self._last_request_time = time.time()
         self._rate_limit_lock = threading.Lock()
@@ -102,7 +102,7 @@ class BlockchainComClient:
     
     def get_balance(self, address: str) -> dict | None:
         """
-        Query balance for a specific Bitcoin address using Blockchain.com API.
+        Query balance for a specific Bitcoin address using Blockcypher API.
         
         Args:
             address (str): Bitcoin address
@@ -115,70 +115,44 @@ class BlockchainComClient:
             self._rate_limit()
             
             try:
-                if self.api_key:
-                    # Use authenticated endpoint with API key for higher rate limits
-                    url = f"{self.api_url}/balance"
-                    params = {
-                        "active": address,
-                        "api_code": self.api_key
-                    }
-                    response = self.session.get(url, params=params, timeout=self.timeout)
-                    
-                    if response.status_code == 200:
-                        # Response is JSON with address as key
-                        data = response.json()
-                        if address in data and "final_balance" in data[address]:
-                            return {"final_balance": data[address]["final_balance"]}
-                        else:
-                            logger.warning(f"Address {address} or final_balance field not found in API response")
-                            return None
-                    elif response.status_code == 429:
-                        # Rate limited - apply exponential backoff and retry
-                        backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
-                        if attempt < self.MAX_RETRIES - 1:
-                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
-                            time.sleep(backoff_delay)
-                            continue
-                        else:
-                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts")
-                            return None
+                # Blockcypher endpoint: /addrs/{address}/balance
+                url = f"{self.api_url}/addrs/{address}/balance"
+                params = {}
+                if self.api_token:
+                    params["token"] = self.api_token
+                
+                response = self.session.get(url, params=params, timeout=self.timeout)
+                
+                if response.status_code == 200:
+                    # Response is JSON with final_balance field
+                    data = response.json()
+                    if "final_balance" in data:
+                        return {"final_balance": data["final_balance"]}
                     else:
-                        logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
+                        logger.warning(f"final_balance field not found in Blockcypher API response for {address}")
+                        return None
+                elif response.status_code == 429:
+                    # Rate limited - apply exponential backoff and retry
+                    backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
+                    if attempt < self.MAX_RETRIES - 1:
+                        logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                        time.sleep(backoff_delay)
+                        continue
+                    else:
+                        logger.warning(f"Blockcypher API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts")
                         return None
                 else:
-                    # Use unauthenticated endpoint (strict rate limits)
-                    url = f"{self.api_url}/q/addressbalance/{address}"
-                    response = self.session.get(url, timeout=self.timeout)
-                    
-                    if response.status_code == 200:
-                        # Response is just the balance in satoshis as plain text
-                        balance_sat = int(response.text.strip())
-                        return {"final_balance": balance_sat}
-                    elif response.status_code == 500 and "No free outputs" in response.text:
-                        # Address exists but has no balance (0 satoshis)
-                        return {"final_balance": 0}
-                    elif response.status_code == 429:
-                        # Rate limited - apply exponential backoff and retry
-                        backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
-                        if attempt < self.MAX_RETRIES - 1:
-                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
-                            time.sleep(backoff_delay)
-                            continue
-                        else:
-                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts. Consider using an API key.")
-                            return None
-                    else:
-                        logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
-                        return None
+                    logger.warning(f"Blockcypher API error for {address}: HTTP {response.status_code}")
+                    return None
                     
             except requests.exceptions.Timeout:
-                logger.warning(f"Blockchain.com API timeout for {address}")
+                logger.warning(f"Blockcypher API timeout for {address}")
                 return None
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Blockchain.com API request error for {address}: {e}")
+                logger.warning(f"Blockcypher API request error for {address}: {e}")
                 return None
             except (ValueError, AttributeError) as e:
-                logger.warning(f"Blockchain.com API response parsing error for {address}: {e}")
+                logger.warning(f"Blockcypher API response parsing error for {address}: {e}")
                 return None
         
         # All retry attempts exhausted without a successful response
@@ -190,17 +164,17 @@ def create_balance_checker():
     Factory function to create the appropriate balance checker based on configuration.
     
     Returns:
-        Balance checker client (FulcrumClient or BlockchainComClient)
+        Balance checker client (FulcrumClient or BlockcypherClient)
     """
-    if BALANCE_API == "blockchain":
-        if BLOCKCHAIN_API_KEY:
-            logger.info(f"Using Blockchain.com API with authentication for balance checks: {BLOCKCHAIN_API_URL}")
-            logger.info(f"Rate limit: {BLOCKCHAIN_RATE_LIMIT}s between requests")
+    if BALANCE_API == "blockcypher":
+        if BLOCKCYPHER_API_TOKEN:
+            logger.info(f"Using Blockcypher API with authentication for balance checks: {BLOCKCYPHER_API_URL}")
+            logger.info(f"Rate limit: {BLOCKCYPHER_RATE_LIMIT}s between requests")
         else:
-            logger.info(f"Using Blockchain.com API (unauthenticated) for balance checks: {BLOCKCHAIN_API_URL}")
-            logger.info(f"Rate limit: {BLOCKCHAIN_RATE_LIMIT}s between requests")
-            logger.warning("No BLOCKCHAIN_API_KEY set. Using unauthenticated API with strict rate limits. Consider setting BLOCKCHAIN_API_KEY for higher limits.")
-        return BlockchainComClient(api_url=BLOCKCHAIN_API_URL, api_key=BLOCKCHAIN_API_KEY, request_delay=BLOCKCHAIN_RATE_LIMIT)
+            logger.info(f"Using Blockcypher API (unauthenticated) for balance checks: {BLOCKCYPHER_API_URL}")
+            logger.info(f"Rate limit: {BLOCKCYPHER_RATE_LIMIT}s between requests")
+            logger.warning("No BLOCKCYPHER_API_TOKEN set. Using unauthenticated API with rate limits. Consider setting BLOCKCYPHER_API_TOKEN for higher limits.")
+        return BlockcypherClient(api_url=BLOCKCYPHER_API_URL, api_token=BLOCKCYPHER_API_TOKEN, request_delay=BLOCKCYPHER_RATE_LIMIT)
     else:
         logger.info(f"Using Fulcrum server for balance checks: {FULCRUM_HOST}:{FULCRUM_PORT}")
         return FulcrumClient(FULCRUM_HOST, FULCRUM_PORT, timeout=5)
@@ -230,8 +204,8 @@ generation_state = {
         "balance_api": BALANCE_API,
         "fulcrum_host": FULCRUM_HOST if BALANCE_API == "fulcrum" else None,
         "fulcrum_port": FULCRUM_PORT if BALANCE_API == "fulcrum" else None,
-        "blockchain_api_url": BLOCKCHAIN_API_URL if BALANCE_API == "blockchain" else None,
-        "blockchain_api_authenticated": bool(BLOCKCHAIN_API_KEY) if BALANCE_API == "blockchain" else None,
+        "blockcypher_api_url": BLOCKCYPHER_API_URL if BALANCE_API == "blockcypher" else None,
+        "blockcypher_api_authenticated": bool(BLOCKCYPHER_API_TOKEN) if BALANCE_API == "blockcypher" else None,
     }
 }
 state_lock = threading.Lock()
@@ -403,8 +377,7 @@ def health_check():
     """Health check endpoint.
     
     Returns basic application health without making external API calls.
-    This avoids triggering rate limits on external APIs (especially the
-    unauthenticated Blockchain.com API with strict limits).
+    This avoids triggering rate limits on external APIs.
     """
     with state_lock:
         worker_status = generation_state["status"]
@@ -425,9 +398,9 @@ def health_check():
     if BALANCE_API == "fulcrum":
         response_data["fulcrum_host"] = FULCRUM_HOST
         response_data["fulcrum_port"] = FULCRUM_PORT
-    elif BALANCE_API == "blockchain":
-        response_data["blockchain_api_url"] = BLOCKCHAIN_API_URL
-        response_data["blockchain_api_authenticated"] = bool(BLOCKCHAIN_API_KEY)
+    elif BALANCE_API == "blockcypher":
+        response_data["blockcypher_api_url"] = BLOCKCYPHER_API_URL
+        response_data["blockcypher_api_authenticated"] = bool(BLOCKCYPHER_API_TOKEN)
     
     return jsonify(response_data)
 
@@ -465,11 +438,11 @@ if __name__ == "__main__":
     host = os.getenv("WEB_HOST", "0.0.0.0")
     
     logger.info(f"Starting Wallet Randomizer Monitoring Interface on {host}:{port}")
-    if BALANCE_API == "blockchain":
-        if BLOCKCHAIN_API_KEY:
-            logger.info(f"Balance API: Blockchain.com (authenticated) ({BLOCKCHAIN_API_URL})")
+    if BALANCE_API == "blockcypher":
+        if BLOCKCYPHER_API_TOKEN:
+            logger.info(f"Balance API: Blockcypher (authenticated) ({BLOCKCYPHER_API_URL})")
         else:
-            logger.info(f"Balance API: Blockchain.com (unauthenticated) ({BLOCKCHAIN_API_URL})")
+            logger.info(f"Balance API: Blockcypher (unauthenticated) ({BLOCKCYPHER_API_URL})")
     else:
         logger.info(f"Balance API: Fulcrum ({FULCRUM_HOST}:{FULCRUM_PORT})")
     logger.info(f"Configuration: {NUM_WALLETS if NUM_WALLETS != -1 else 'Infinite'} wallets, {NUM_ADDRESSES} addresses, {NETWORK}")
