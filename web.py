@@ -37,7 +37,7 @@ FULCRUM_HOST = os.getenv("FULCRUM_HOST", "127.0.0.1")
 FULCRUM_PORT = int(os.getenv("FULCRUM_PORT", "50001"))
 BLOCKCHAIN_API_URL = os.getenv("BLOCKCHAIN_API_URL", "https://blockchain.info")
 BLOCKCHAIN_API_KEY = os.getenv("BLOCKCHAIN_API_KEY")  # Optional API key for higher rate limits
-BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "1.1"))  # Delay in seconds between API calls (default 1.1s for unauthenticated)
+BLOCKCHAIN_RATE_LIMIT = float(os.getenv("BLOCKCHAIN_RATE_LIMIT", "5.0"))  # Delay in seconds between API calls (default 5s for unauthenticated)
 NUM_WALLETS = int(os.getenv("NUM_WALLETS", "-1"))  # -1 for infinite
 NUM_ADDRESSES = int(os.getenv("NUM_ADDRESSES", "5"))
 NETWORK = os.getenv("NETWORK", "bip84")
@@ -106,61 +106,81 @@ class BlockchainComClient:
         Returns:
             dict | None: {"final_balance": int} with balance in satoshis, or None on error
         """
-        # Apply rate limiting before making request
-        self._rate_limit()
+        max_retries = 3
+        base_delay = self.request_delay
         
-        try:
-            if self.api_key:
-                # Use authenticated endpoint with API key for higher rate limits
-                url = f"{self.api_url}/balance"
-                params = {
-                    "active": address,
-                    "api_code": self.api_key
-                }
-                response = self.session.get(url, params=params, timeout=self.timeout)
-                
-                if response.status_code == 200:
-                    # Response is JSON with address as key
-                    data = response.json()
-                    if address in data and "final_balance" in data[address]:
-                        return {"final_balance": data[address]["final_balance"]}
+        for attempt in range(max_retries):
+            # Apply rate limiting before making request
+            self._rate_limit()
+            
+            try:
+                if self.api_key:
+                    # Use authenticated endpoint with API key for higher rate limits
+                    url = f"{self.api_url}/balance"
+                    params = {
+                        "active": address,
+                        "api_code": self.api_key
+                    }
+                    response = self.session.get(url, params=params, timeout=self.timeout)
+                    
+                    if response.status_code == 200:
+                        # Response is JSON with address as key
+                        data = response.json()
+                        if address in data and "final_balance" in data[address]:
+                            return {"final_balance": data[address]["final_balance"]}
+                        else:
+                            logger.warning(f"Address {address} or final_balance field not found in API response")
+                            return None
+                    elif response.status_code == 429:
+                        # Rate limited - apply exponential backoff and retry
+                        backoff_delay = base_delay * (2 ** attempt)
+                        if attempt < max_retries - 1:
+                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(backoff_delay)
+                            continue
+                        else:
+                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {max_retries} attempts")
+                            return None
                     else:
-                        logger.warning(f"Address {address} or final_balance field not found in API response")
+                        logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
                         return None
-                elif response.status_code == 429:
-                    logger.warning(f"Blockchain.com API rate limit exceeded for {address}")
-                    return None
                 else:
-                    logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
-                    return None
-            else:
-                # Use unauthenticated endpoint (strict rate limits)
-                url = f"{self.api_url}/q/addressbalance/{address}"
-                response = self.session.get(url, timeout=self.timeout)
-                
-                if response.status_code == 200:
-                    # Response is just the balance in satoshis as plain text
-                    balance_sat = int(response.text.strip())
-                    return {"final_balance": balance_sat}
-                elif response.status_code == 500 and "No free outputs" in response.text:
-                    # Address exists but has no balance (0 satoshis)
-                    return {"final_balance": 0}
-                elif response.status_code == 429:
-                    logger.warning(f"Blockchain.com API rate limit exceeded for {address}. Consider using an API key.")
-                    return None
-                else:
-                    logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
-                    return None
-                
-        except requests.exceptions.Timeout:
-            logger.warning(f"Blockchain.com API timeout for {address}")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Blockchain.com API request error for {address}: {e}")
-            return None
-        except (ValueError, AttributeError) as e:
-            logger.warning(f"Blockchain.com API response parsing error for {address}: {e}")
-            return None
+                    # Use unauthenticated endpoint (strict rate limits)
+                    url = f"{self.api_url}/q/addressbalance/{address}"
+                    response = self.session.get(url, timeout=self.timeout)
+                    
+                    if response.status_code == 200:
+                        # Response is just the balance in satoshis as plain text
+                        balance_sat = int(response.text.strip())
+                        return {"final_balance": balance_sat}
+                    elif response.status_code == 500 and "No free outputs" in response.text:
+                        # Address exists but has no balance (0 satoshis)
+                        return {"final_balance": 0}
+                    elif response.status_code == 429:
+                        # Rate limited - apply exponential backoff and retry
+                        backoff_delay = base_delay * (2 ** attempt)
+                        if attempt < max_retries - 1:
+                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(backoff_delay)
+                            continue
+                        else:
+                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {max_retries} attempts. Consider using an API key.")
+                            return None
+                    else:
+                        logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
+                        return None
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"Blockchain.com API timeout for {address}")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Blockchain.com API request error for {address}: {e}")
+                return None
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Blockchain.com API response parsing error for {address}: {e}")
+                return None
+        
+        return None
 
 
 def create_balance_checker():
@@ -378,34 +398,34 @@ def get_status():
 
 @flask_app.route("/api/health", methods=["GET"])
 def health_check():
-    """Health check endpoint."""
-    try:
-        # Test balance API connection
-        client = create_balance_checker()
-        # Try a simple test (checking a known address with zero balance for quick response)
-        # Using a burn address that's known to exist
-        test_result = client.get_balance("1111111111111111111114oLvT2")  # Known burn address
-        client.close()
-        
-        if test_result is not None:
-            api_status = "connected"
-        else:
-            api_status = "error: unable to query balance"
-    except Exception as e:
-        api_status = f"error: {str(e)}"
+    """Health check endpoint.
     
+    Returns basic application health without making external API calls.
+    This avoids triggering rate limits on external APIs (especially the
+    unauthenticated Blockchain.com API with strict limits).
+    """
+    with state_lock:
+        worker_status = generation_state["status"]
+        worker_error = generation_state["error"]
+    
+    # Basic health check - verify the app is running and worker is active
+    # We don't make external API calls here to avoid rate limiting issues
     response_data = {
         "status": "healthy",
         "balance_api": BALANCE_API,
-        "api_status": api_status,
+        "worker_status": worker_status,
     }
     
-    # Add API-specific info
+    if worker_error:
+        response_data["worker_error"] = worker_error
+    
+    # Add API-specific configuration info (not a connectivity test)
     if BALANCE_API == "fulcrum":
         response_data["fulcrum_host"] = FULCRUM_HOST
         response_data["fulcrum_port"] = FULCRUM_PORT
     elif BALANCE_API == "blockchain":
         response_data["blockchain_api_url"] = BLOCKCHAIN_API_URL
+        response_data["blockchain_api_authenticated"] = bool(BLOCKCHAIN_API_KEY)
     
     return jsonify(response_data)
 
