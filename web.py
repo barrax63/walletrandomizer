@@ -63,7 +63,7 @@ class BlockchainComClient:
     Authenticated mode provides higher rate limits.
     """
     
-    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 1.0):
+    def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 10.0):
         """
         Initialize Blockchain.com API client.
         
@@ -71,24 +71,26 @@ class BlockchainComClient:
             api_url (str): Base URL for Blockchain.com API
             timeout (int): Request timeout in seconds
             api_key (str, optional): API key for authenticated requests with higher rate limits
-            request_delay (float): Delay in seconds between API requests for rate limiting
+            request_delay (float): Delay in seconds between API requests for rate limiting (default 10.0s for unauthenticated API)
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
         self.api_key = api_key
         self.request_delay = request_delay
         self._last_request_time = 0.0
+        self._rate_limit_lock = threading.Lock()
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'WalletRandomizer/1.0'
         })
     
     def _rate_limit(self):
-        """Apply rate limiting between API requests."""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self.request_delay:
-            time.sleep(self.request_delay - elapsed)
-        self._last_request_time = time.time()
+        """Apply rate limiting between API requests. Thread-safe."""
+        with self._rate_limit_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self.request_delay:
+                time.sleep(self.request_delay - elapsed)
+            self._last_request_time = time.time()
     
     def close(self):
         """Close the session."""
