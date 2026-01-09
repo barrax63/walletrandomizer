@@ -12,10 +12,11 @@ The application features a **real-time monitoring web interface** that displays 
 3. [Quick Start](#quick-start)
 4. [Web Monitoring Interface](#web-monitoring-interface)
 5. [Balance API Options](#balance-api-options)
-6. [Configuration](#configuration)
-7. [Environment Variables](#environment-variables)
-8. [Examples](#examples)
-9. [Author](#author)
+6. [Setting Up Bitcoin Core and Fulcrum (Windows)](#setting-up-bitcoin-core-and-fulcrum-windows)
+7. [Configuration](#configuration)
+8. [Environment Variables](#environment-variables)
+9. [Examples](#examples)
+10. [Author](#author)
 
 ---
 
@@ -239,6 +240,208 @@ BLOCKCHAIN_API_KEY=your-api-key-here        # Optional, but recommended for high
 3. Add your API key to the `.env` file as `BLOCKCHAIN_API_KEY=your-api-key-here`
 
 **Note:** For intensive scanning (many wallets/addresses), Fulcrum is still recommended for best performance.
+
+---
+
+## Setting Up Bitcoin Core and Fulcrum (Windows)
+
+To use Fulcrum with this project, you need a fully synced Bitcoin Core node. This section provides step-by-step instructions for setting up both Bitcoin Core and Fulcrum on Windows.
+
+### Prerequisites
+
+- Windows 10 or later (64-bit)
+- At least 1 TB of free disk space (for the full Bitcoin blockchain, ~600GB + indexes)
+- Stable internet connection
+- 8 GB RAM minimum (16 GB recommended)
+
+### Step 1: Install Bitcoin Core
+
+1. **Download Bitcoin Core:**
+   - Visit the official Bitcoin Core download page: [https://bitcoincore.org/en/download/](https://bitcoincore.org/en/download/)
+   - Download the Windows installer (`bitcoin-<version>-win64-setup.exe`)
+
+2. **Verify the download (recommended):**
+   - Download the SHA256 checksums file and verify the installer integrity
+   - See [https://bitcoincore.org/en/download/](https://bitcoincore.org/en/download/) for verification instructions
+
+3. **Install Bitcoin Core:**
+   - Run the installer and follow the prompts
+   - Choose an installation directory (default is fine)
+   - When asked about the data directory, choose a location with sufficient space (1 TB+)
+
+4. **Configure Bitcoin Core for Fulcrum:**
+
+   Before starting the initial sync, create or edit the `bitcoin.conf` file:
+   
+   - Navigate to your Bitcoin data directory (default: `%APPDATA%\Bitcoin\`)
+   - Create a file named `bitcoin.conf` if it doesn't exist
+   - Add the following configuration:
+
+   ```ini
+   # Server mode (required for Fulcrum)
+   server=1
+   
+   # RPC credentials - CHANGE THESE to your own secure values!
+   rpcuser=CHANGE_THIS_USERNAME
+   rpcpassword=CHANGE_THIS_PASSWORD
+   
+   # Transaction index (required for Fulcrum)
+   txindex=1
+   
+   # ZeroMQ notifications (optional but recommended)
+   zmqpubhashblock=tcp://127.0.0.1:8433
+   
+   # Prune setting - DO NOT enable pruning if using Fulcrum
+   # prune=0 (default, full node)
+   
+   # Optional: Reduce bandwidth usage during initial sync
+   # maxconnections=10
+   
+   # Optional: Limit upload bandwidth (in KB/s)
+   # maxuploadtarget=500
+   ```
+
+   **Important:** Replace `CHANGE_THIS_USERNAME` and `CHANGE_THIS_PASSWORD` with your own secure credentials.
+
+5. **Start Bitcoin Core and begin syncing:**
+   - Launch Bitcoin Core from the Start menu
+   - The initial blockchain download (IBD) will take several days depending on your internet speed and hardware
+   - You can monitor progress in the Bitcoin Core GUI or by checking the debug log
+
+6. **Wait for full synchronization:**
+   - Bitcoin Core must be fully synced before Fulcrum can start indexing
+   - Check the progress bar in Bitcoin Core or use `bitcoin-cli getblockchaininfo`
+
+### Step 2: Install Fulcrum
+
+1. **Download Fulcrum:**
+   - Visit the Fulcrum releases page: [https://github.com/cculianu/Fulcrum/releases](https://github.com/cculianu/Fulcrum/releases)
+   - Download the latest Windows release (e.g., `Fulcrum-<version>-win64.zip`)
+
+2. **Extract Fulcrum:**
+   - Extract the ZIP file to a folder of your choice (e.g., `C:\Fulcrum\`)
+   - **Note:** The examples below use `C:\Fulcrum\` as the installation directory. Adjust paths accordingly if you choose a different location.
+
+3. **Create a Fulcrum configuration file:**
+   
+   Create a file named `fulcrum.conf` in the Fulcrum folder with the following content:
+
+   ```ini
+   # Bitcoin Core RPC connection
+   bitcoind = 127.0.0.1:8332
+   rpcuser = CHANGE_THIS_USERNAME
+   rpcpassword = CHANGE_THIS_PASSWORD
+   
+   # Data directory for Fulcrum indexes (needs ~100-150 GB)
+   # Adjust this path if you installed Fulcrum in a different location
+   datadir = C:\Fulcrum\data
+   
+   # TCP port for Electrum protocol (used by this project)
+   tcp = 0.0.0.0:50001
+   
+   # Optional: SSL port (requires certificate)
+   # ssl = 0.0.0.0:50002
+   # cert = C:\Fulcrum\server.crt
+   # key = C:\Fulcrum\server.key
+   
+   # Performance tuning (adjust based on your system)
+   # db_max_open_files = 400
+   # worker_threads = 4
+   ```
+
+   **Important:** The `rpcuser` and `rpcpassword` must match your `bitcoin.conf` settings. Replace `CHANGE_THIS_USERNAME` and `CHANGE_THIS_PASSWORD` with the same credentials you used in `bitcoin.conf`.
+
+4. **Create the data directory:**
+   
+   Adjust the path if you installed Fulcrum in a different location:
+   ```cmd
+   mkdir C:\Fulcrum\data
+   ```
+
+5. **Start Fulcrum for initial sync:**
+   
+   Open Command Prompt, navigate to your Fulcrum installation folder, and run:
+   ```cmd
+   cd C:\Fulcrum
+   Fulcrum.exe fulcrum.conf
+   ```
+   
+   **Note:** Adjust `C:\Fulcrum` to your actual installation directory if different.
+
+   **Initial indexing notes:**
+   - First-time indexing takes several hours (8-24+ hours depending on hardware)
+   - Fulcrum will create a ~100-150 GB index database
+   - You can monitor progress in the console output
+   - SSD storage is highly recommended for the data directory
+
+6. **Verify Fulcrum is running:**
+   - Once indexing is complete, Fulcrum will show `Listening on 0.0.0.0:50001`
+   - You can test the connection with: `telnet 127.0.0.1 50001`
+
+### Step 3: Configure Wallet Randomizer to Use Fulcrum
+
+1. **Edit your `.env` file:**
+   ```bash
+   BALANCE_API=fulcrum
+   FULCRUM_SERVER=127.0.0.1:50001
+   ```
+
+   If running Docker on Windows with WSL2 or Docker Desktop, you may need to use your Windows host IP instead of `127.0.0.1`. To find your IP:
+   ```cmd
+   ipconfig
+   ```
+   Look for the IPv4 address of your network adapter (e.g., `192.168.1.100`).
+
+2. **Ensure Windows Firewall allows connections:**
+   - Open Windows Defender Firewall
+   - Click "Allow an app or feature through Windows Defender Firewall"
+   - Add Fulcrum.exe or create an inbound rule for port 50001
+
+3. **Start the Wallet Randomizer:**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Verify the connection:**
+   - Access the dashboard at `http://localhost:5000`
+   - Check that wallet generation is proceeding without connection errors
+
+### Running Fulcrum as a Windows Service (Optional)
+
+For continuous operation, you can run Fulcrum as a Windows service using tools like [NSSM (Non-Sucking Service Manager)](https://nssm.cc/):
+
+1. Download and extract NSSM
+2. Open Command Prompt as Administrator
+3. Run:
+   ```cmd
+   nssm install Fulcrum
+   ```
+4. Configure the service (adjust paths to match your installation directory):
+   - **Path:** `C:\Fulcrum\Fulcrum.exe`
+   - **Arguments:** `C:\Fulcrum\fulcrum.conf`
+   - **Startup directory:** `C:\Fulcrum`
+5. Start the service:
+   ```cmd
+   nssm start Fulcrum
+   ```
+
+### Troubleshooting
+
+**Connection refused errors:**
+- Verify Bitcoin Core is running and fully synced
+- Check that Fulcrum is running and has completed initial indexing
+- Ensure Windows Firewall is not blocking connections on port 50001
+- If using Docker Desktop, try using the host's LAN IP instead of `127.0.0.1`
+
+**Fulcrum fails to connect to Bitcoin Core:**
+- Verify `rpcuser` and `rpcpassword` match in both `bitcoin.conf` and `fulcrum.conf`
+- Ensure `server=1` is set in `bitcoin.conf`
+- Check that Bitcoin Core's RPC port (8332) is accessible
+
+**Slow performance:**
+- Ensure Fulcrum's data directory is on an SSD
+- Increase `worker_threads` in `fulcrum.conf` if you have spare CPU cores
+- Allow Fulcrum to complete initial indexing before heavy usage
 
 ---
 
