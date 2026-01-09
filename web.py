@@ -63,6 +63,10 @@ class BlockchainComClient:
     Authenticated mode provides higher rate limits.
     """
     
+    # Retry configuration for rate limiting
+    MAX_RETRIES = 3
+    BACKOFF_MULTIPLIER = 2
+    
     def __init__(self, api_url: str = "https://blockchain.info", timeout: int = 10, api_key: str = None, request_delay: float = 1.1):
         """
         Initialize Blockchain.com API client.
@@ -106,10 +110,7 @@ class BlockchainComClient:
         Returns:
             dict | None: {"final_balance": int} with balance in satoshis, or None on error
         """
-        max_retries = 3
-        base_delay = self.request_delay
-        
-        for attempt in range(max_retries):
+        for attempt in range(self.MAX_RETRIES):
             # Apply rate limiting before making request
             self._rate_limit()
             
@@ -133,13 +134,13 @@ class BlockchainComClient:
                             return None
                     elif response.status_code == 429:
                         # Rate limited - apply exponential backoff and retry
-                        backoff_delay = base_delay * (2 ** attempt)
-                        if attempt < max_retries - 1:
-                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
+                        if attempt < self.MAX_RETRIES - 1:
+                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
                             time.sleep(backoff_delay)
                             continue
                         else:
-                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {max_retries} attempts")
+                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts")
                             return None
                     else:
                         logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
@@ -158,13 +159,13 @@ class BlockchainComClient:
                         return {"final_balance": 0}
                     elif response.status_code == 429:
                         # Rate limited - apply exponential backoff and retry
-                        backoff_delay = base_delay * (2 ** attempt)
-                        if attempt < max_retries - 1:
-                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        backoff_delay = self.request_delay * (self.BACKOFF_MULTIPLIER ** attempt)
+                        if attempt < self.MAX_RETRIES - 1:
+                            logger.debug(f"Rate limited for {address}, retrying in {backoff_delay:.1f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
                             time.sleep(backoff_delay)
                             continue
                         else:
-                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {max_retries} attempts. Consider using an API key.")
+                            logger.warning(f"Blockchain.com API rate limit exceeded for {address} after {self.MAX_RETRIES} attempts. Consider using an API key.")
                             return None
                     else:
                         logger.warning(f"Blockchain.com API error for {address}: HTTP {response.status_code}")
@@ -180,6 +181,7 @@ class BlockchainComClient:
                 logger.warning(f"Blockchain.com API response parsing error for {address}: {e}")
                 return None
         
+        # All retry attempts exhausted without a successful response
         return None
 
 
