@@ -1,6 +1,6 @@
 # Wallet Randomizer
 
-**Wallet Randomizer** is a Docker-based application that continuously generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using either a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server or the Blockchain.com public API.
+**Wallet Randomizer** is a Docker-based application that continuously generates random [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) wallets, derives Bitcoin addresses under various derivation paths (BIP44, BIP49, BIP84, BIP86), and queries their balances using either a local [Fulcrum](https://github.com/cculianu/Fulcrum) Electrum server or the Blockcypher public API.
 
 The application features a **real-time monitoring web interface** that displays live metrics and wallet generation progress.
 
@@ -44,7 +44,7 @@ The application features a **real-time monitoring web interface** that displays 
 - **Flexible Balance Checking**  
   Choose between:
   - **Fulcrum Electrum Server**: Fast, requires local setup
-  - **Blockchain.com API**: No setup required, public API (rate limited)
+  - **Blockcypher API**: No setup required, public API (rate limited)
 
 - **Parallel Processing**  
   Utilizes concurrent processing for wallet derivation and balance checks, speeding up bulk address queries.
@@ -62,13 +62,13 @@ The application features a **real-time monitoring web interface** that displays 
 - **Docker** and **Docker Compose** installed on your system
 - **Balance API** (choose one):
   - **Fulcrum Electrum server** (default `127.0.0.1:50001`) running on your local machine or a reachable host/port, OR
-  - **Internet connection** for Blockchain.com public API (no setup required)
+  - **Internet connection** for Blockcypher public API (no setup required)
 
 ---
 
 ## Quick Start
 
-### Option 1: Using Blockchain.com API (Easiest)
+### Option 1: Using Blockcypher API (Easiest)
 
 1. **Clone the repository:**
    ```bash
@@ -81,9 +81,9 @@ The application features a **real-time monitoring web interface** that displays 
    cp .env.example .env
    ```
 
-3. **Edit `.env` to use Blockchain.com API:**
+3. **Edit `.env` to use Blockcypher API:**
    ```bash
-   BALANCE_API=blockchain
+   BALANCE_API=blockcypher
    NUM_WALLETS=-1  # -1 for infinite generation
    NUM_ADDRESSES=5
    NETWORK=bip84
@@ -207,36 +207,37 @@ BALANCE_API=fulcrum
 FULCRUM_SERVER=192.168.1.100:50001
 ```
 
-### Blockchain.com Public API (Easiest Setup)
+### Blockcypher Public API (Easiest Setup)
 
 **Pros:**
 - No setup required - works out of the box
 - No infrastructure needed
 - Good for occasional use or testing
-- API key support for higher rate limits
+- API token support for higher rate limits
 
 **Cons:**
 - Slower than Fulcrum (HTTP requests)
-- Subject to rate limiting (especially without API key)
+- Subject to rate limiting (especially without API token)
 - Depends on external service availability
 
 **Configuration:**
 ```bash
-BALANCE_API=blockchain
-BLOCKCHAIN_API_URL=https://blockchain.info  # Optional, uses this by default
-BLOCKCHAIN_API_KEY=your-api-key-here        # Optional, but recommended for higher rate limits
+BALANCE_API=blockcypher
+BLOCKCYPHER_API_URL=https://api.blockcypher.com/v1/btc/main  # Optional, uses this by default
+BLOCKCYPHER_API_TOKEN=your-api-token-here                    # Optional, but recommended for higher rate limits
 ```
 
 **Authenticated vs Unauthenticated Usage:**
 
-- **Without API Key (Unauthenticated):** Very strict rate limits - suitable only for testing or very low-volume scanning. You may encounter HTTP 429 errors even with just 1 worker.
-- **With API Key (Authenticated):** Higher rate limits - better for continuous scanning, though still slower than Fulcrum.
+- **Without API Token (Unauthenticated):** Rate limited to ~200 requests/hour - suitable only for testing or low-volume scanning. You may encounter HTTP 429 errors.
+- **With API Token (Authenticated):** Higher rate limits (~2000 requests/hour) - better for continuous scanning, though still slower than Fulcrum.
 
-**How to Obtain a Blockchain.com API Key:**
+**How to Obtain a Blockcypher API Token:**
 
-1. Visit [https://www.blockchain.com/api](https://www.blockchain.com/api)
-2. Sign up for a free API key
-3. Add your API key to the `.env` file as `BLOCKCHAIN_API_KEY=your-api-key-here`
+1. Visit [https://accounts.blockcypher.com/](https://accounts.blockcypher.com/)
+2. Sign up for a free account
+3. Create an API token
+4. Add your API token to the `.env` file as `BLOCKCYPHER_API_TOKEN=your-api-token-here`
 
 **Note:** For intensive scanning (many wallets/addresses), Fulcrum is still recommended for best performance.
 
@@ -282,7 +283,7 @@ LANGUAGE=english
 
 | Variable | Description | Required | Default | Valid Values |
 |----------|-------------|----------|---------|--------------|
-| `BALANCE_API` | Balance checking method | No | `fulcrum` | `fulcrum`, `blockchain` |
+| `BALANCE_API` | Balance checking method | No | `fulcrum` | `fulcrum`, `blockcypher` |
 
 ### Fulcrum Server Configuration (if BALANCE_API=fulcrum)
 
@@ -294,14 +295,15 @@ LANGUAGE=english
 
 \* Required only when `BALANCE_API=fulcrum`. You can use either `FULCRUM_SERVER` (which is automatically split into host and port) or specify `FULCRUM_HOST` and `FULCRUM_PORT` separately.
 
-### Blockchain.com API Configuration (if BALANCE_API=blockchain)
+### Blockcypher API Configuration (if BALANCE_API=blockcypher)
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `BLOCKCHAIN_API_URL` | Blockchain.com API base URL | No | `https://blockchain.info` |
-| `BLOCKCHAIN_API_KEY` | Blockchain.com API key for authenticated requests (higher rate limits) | No | None (unauthenticated) |
+| `BLOCKCYPHER_API_URL` | Blockcypher API base URL | No | `https://api.blockcypher.com/v1/btc/main` |
+| `BLOCKCYPHER_API_TOKEN` | Blockcypher API token for authenticated requests (higher rate limits) | No | None (unauthenticated) |
+| `BLOCKCYPHER_RATE_LIMIT` | Delay in seconds between API requests | No | `0.5` |
 
-**Note:** Without `BLOCKCHAIN_API_KEY`, the application uses unauthenticated API with very strict rate limits. It's highly recommended to obtain a free API key from [blockchain.com/api](https://www.blockchain.com/api) to avoid rate limiting errors.
+**Note:** Without `BLOCKCYPHER_API_TOKEN`, the application uses unauthenticated API with rate limits (~200 requests/hour). It's recommended to obtain a free API token from [accounts.blockcypher.com](https://accounts.blockcypher.com/) for higher rate limits.
 
 ### Wallet Generation Configuration
 
