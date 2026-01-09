@@ -339,11 +339,6 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    # TCP port for Electrum protocol (used by this project)
    tcp = 0.0.0.0:50001
    
-   # Optional: SSL port (requires certificate)
-   # ssl = 0.0.0.0:50002
-   # cert = C:\Fulcrum\server.crt
-   # key = C:\Fulcrum\server.key
-   
    # Performance tuning (see recommendations below)
    # db_max_open_files = 400
    # worker_threads = 4
