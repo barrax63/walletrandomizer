@@ -81,7 +81,7 @@ class BlockchainComClient:
         self.timeout = timeout
         self.api_key = api_key
         self.request_delay = request_delay
-        self._last_request_time = 0.0
+        self._last_request_time = time.time()
         self._rate_limit_lock = threading.Lock()
         self.session = requests.Session()
         self.session.headers.update({
