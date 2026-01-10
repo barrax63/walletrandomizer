@@ -288,6 +288,9 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    
    # Transaction index (required for Fulcrum)
    txindex=1
+
+   # Disable the built-in wallet to run node-only
+   disablewallet=1
    
    # ZeroMQ notifications (optional but recommended)
    zmqpubhashblock=tcp://127.0.0.1:8433
