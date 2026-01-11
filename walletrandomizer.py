@@ -27,6 +27,14 @@ from concurrent.futures import (
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
+###############################################################################
+# MODULE-LEVEL LOGGER
+###############################################################################
+# Create logger at module level so it's available when imported as a module
+# Add NullHandler to prevent "No handler found" warnings when imported as library
+logger = logging.getLogger("walletrandomizer")
+logger.addHandler(logging.NullHandler())
+
 #START PROFILING
 #import cProfile, pstats, io
 #profiler = cProfile.Profile()
@@ -370,7 +378,11 @@ class FulcrumClient:
         self._connect()
 
     def _connect(self):
-        """Create the TCP socket and file-like reader for line-based JSON responses."""
+        """Create the TCP socket and file-like reader for line-based JSON responses.
+        
+        Raises:
+            ConnectionError: If connection to Fulcrum server fails.
+        """
         try:
             self.sock = socket.create_connection(
                 (self.host, self.port), timeout=self.timeout
@@ -380,7 +392,7 @@ class FulcrumClient:
             self.f = self.sock.makefile("r")
         except Exception as e:
             logger.error(f"\nERROR: Failed to connect to Fulcrum: {e}")
-            sys.exit(1)
+            raise ConnectionError(f"Failed to connect to Fulcrum at {self.host}:{self.port}") from e
 
     def close(self):
         """Close the TCP connection and file stream gracefully."""
@@ -929,8 +941,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # Built-in logger setup
-    logger = logging.getLogger("walletrandomizer")
+    # Configure logger when running as main script
+    # The logger is already created at module level, so we just configure it
     logger.setLevel(logging.INFO)
 
     # Create a console handler for the terminal output
