@@ -339,11 +339,17 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    
    # TCP port for Electrum protocol (used by this project)
    tcp = 0.0.0.0:50001
+
+   # Peer networking OFF (no public peers, no gossip, no Tor)
+   peering = false
+   announce = false
    
+   zmq_allow_hashtx = true
+
    # Performance tuning (see recommendations below)
    # db_max_open_files = 400
    # worker_threads = 4
-   # fast_sync = 1
+   # db_mem = 2048
    ```
 
    **Important:** The `rpcuser` and `rpcpassword` must match your `bitcoin.conf` settings. Replace `CHANGE_THIS_USERNAME` and `CHANGE_THIS_PASSWORD` with the same credentials you used in `bitcoin.conf`.
@@ -354,7 +360,6 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    |---------|-------------|-------------------|
    | `db_max_open_files` | Maximum number of database file handles. Higher values improve performance but use more RAM. | **Low-end (8GB RAM):** 200-400<br>**Mid-range (16GB RAM):** 400-800<br>**High-end (32GB+ RAM):** 1000-2000 |
    | `worker_threads` | Number of threads for processing client requests. Should generally match or be slightly less than your CPU core count. | **4-core CPU:** 4<br>**6-core CPU:** 6<br>**8+ core CPU:** 8-12 |
-   | `fast_sync` | Enables faster initial sync at the cost of higher memory usage. Set to `0` on systems with limited RAM. | **8GB RAM:** 0 (disabled)<br>**16GB+ RAM:** 1 (enabled) |
    | `db_mem` | Database cache size in MB. Higher values speed up initial sync and queries. | **8GB RAM:** 256-512<br>**16GB RAM:** 1024-2048<br>**32GB+ RAM:** 2048-4096 |
 
    **Example configurations:**
@@ -363,7 +368,6 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    ```ini
    db_max_open_files = 300
    worker_threads = 4
-   fast_sync = 0
    db_mem = 512
    ```
 
@@ -371,7 +375,6 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    ```ini
    db_max_open_files = 600
    worker_threads = 6
-   fast_sync = 1
    db_mem = 1536
    ```
 
@@ -379,7 +382,6 @@ To use Fulcrum with this project, you need a fully synced Bitcoin Core node. Thi
    ```ini
    db_max_open_files = 1500
    worker_threads = 10
-   fast_sync = 1
    db_mem = 4096
    ```
 
