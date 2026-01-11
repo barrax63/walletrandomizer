@@ -31,7 +31,9 @@ from datetime import datetime
 # MODULE-LEVEL LOGGER
 ###############################################################################
 # Create logger at module level so it's available when imported as a module
+# Add NullHandler to prevent "No handler found" warnings when imported as library
 logger = logging.getLogger("walletrandomizer")
+logger.addHandler(logging.NullHandler())
 
 #START PROFILING
 #import cProfile, pstats, io
@@ -390,7 +392,7 @@ class FulcrumClient:
             self.f = self.sock.makefile("r")
         except Exception as e:
             logger.error(f"\nERROR: Failed to connect to Fulcrum: {e}")
-            raise ConnectionError(f"Failed to connect to Fulcrum at {self.host}:{self.port}: {e}") from e
+            raise ConnectionError(f"Failed to connect to Fulcrum at {self.host}:{self.port}") from e
 
     def close(self):
         """Close the TCP connection and file stream gracefully."""
